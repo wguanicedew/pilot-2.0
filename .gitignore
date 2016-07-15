@@ -1,0 +1,4 @@
+*.pyc
+build
+dist
+pilot2.egg-info

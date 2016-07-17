@@ -80,9 +80,9 @@ print 'Checking if there already exists a merge request for this dev/patch/hotfi
 resp = requests.get(url='%s' % project_url,
                     params={'state': 'open'})
 mr_list = json.loads(resp.text)
-print mr_list
+# print mr_list
 for mr in mr_list:
-    print mr
+    # print mr
     if current_branch in mr['head']['ref'] and mr['state'] == 'open':
         print 'ERROR'
         print 'There is already an open Merge Request for this branch.'

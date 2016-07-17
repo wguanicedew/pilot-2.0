@@ -3,7 +3,7 @@
 #    You may not use this file except in compliance with the License.
 #    You may obtain a copy of the License at U{http://www.apache.org/licenses/LICENSE-2.0}
 """
-Installation script Rucio's development virtualenv
+Installation script Pilot's development virtualenv
 """
 
 import optparse
@@ -56,7 +56,7 @@ def check_dependencies():
             print 'Installing virtualenv via pip...',
             if not run_command(['which', 'pip']):
                 die('ERROR: virtualenv not found.\n\n'
-                    'Rucio development requires virtualenv, please install'
+                    'Pilot development requires virtualenv, please install'
                     ' it using your favorite package management tool')
             else:
                 if not run_command(['pip', 'install', 'virtualenv']).strip():
@@ -66,7 +66,7 @@ def check_dependencies():
             print 'Installing virtualenv via easy_install...',
             if not run_command(['which', 'easy_install']):
                 die('ERROR: virtualenv not found.\n\n'
-                    'Rucio development requires virtualenv, please install'
+                    'Pilot development requires virtualenv, please install'
                     ' it using your favorite package management tool')
             else:
                 if not run_command(['easy_install', 'virtualenv']).strip():
@@ -113,12 +113,12 @@ def _detect_python_version(venv):
 
 def print_help():
     help = """
- Rucio development environment setup is complete.
+ Pilot development environment setup is complete.
 
- Rucio development uses virtualenv to track and manage Python dependencies
+ Pilot development uses virtualenv to track and manage Python dependencies
  while in development and testing.
 
- To activate the Rucio virtualenv for the extent of your current shell session
+ To activate the Pilot virtualenv for the extent of your current shell session
  you can run:
 
  $ source .venv/bin/activate
@@ -136,9 +136,8 @@ def print_help():
 if __name__ == '__main__':
 
     parser = optparse.OptionParser()
-    parser.add_option("-a", "--atlas-clients", action="store_true", default=False, dest="atlas_clients", help="Setting up a Rucio development environment for ATLAS clients")
     (options, args) = parser.parse_args()
     # check_dependencies()
     create_virtualenv()
-    install_dependencies(client=options.atlas_clients)
+    install_dependencies()
     print_help()

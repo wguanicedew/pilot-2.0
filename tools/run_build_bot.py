@@ -78,7 +78,7 @@ def start_test(mr, token):
     error_lines = []
     print 'Starting testing for MR %s ...' % mr['head']['label']
     # Add remote to user
-    commands.getstatusoutput('git remote add %s %s' % (mr['head']['label'].split(":")[0], mr['head']['git_url']))
+    commands.getstatusoutput('git remote add %s %s' % (mr['head']['label'].split(":")[0], mr['head']['repo']['git_url']))
 
     # Fetch all
     print '  git fetch --all --prune'
@@ -86,10 +86,10 @@ def start_test(mr, token):
         print 'Error while fetching all'
         sys.exit(-1)
 
-    # Rebase master/next
-    print '  git rebase origin/next next'
-    if commands.getstatusoutput('git rebase origin/next next')[0] != 0:
-        print 'Error while rebaseing next'
+    # Rebase master/dev
+    print '  git rebase origin/dev dev'
+    if commands.getstatusoutput('git rebase origin/dev dev')[0] != 0:
+        print 'Error while rebaseing dev'
         sys.exit(-1)
     print '  git rebase origin/master master'
     if commands.getstatusoutput('git rebase origin/master master')[0] != 0:
@@ -102,7 +102,7 @@ def start_test(mr, token):
         commits = commands.getoutput('git log master..remotes/%s/%s | grep ^commit' % (mr['head']['label'].split(":")[0], mr['head']['label'].split(":")[1]))
         for commit in commits.splitlines():
             commit = commit.partition(' ')[2]
-            if commands.getstatusoutput('git branch --contains %s | grep next' % commit)[0] == 0:
+            if commands.getstatusoutput('git branch --contains %s | grep dev' % commit)[0] == 0:
                 print '    Found cross-merge problem with commit %s' % commit
                 tests_passed = False
                 error_lines.append('##### CROSS-MERGE TESTS:\n')
@@ -196,7 +196,7 @@ resp = requests.get(url=project_url, params={'state': 'open'})
 mr_list = json.loads(resp.text)
 for mr in mr_list:
     print 'Checking MR %s -> %s if it needs testing ...' % (mr['head']['label'], mr['base']['label']),
-    if 'next' in mr['base']['label'] and needs_testing(mr):
+    if 'dev' in mr['base']['label'] and needs_testing(mr):
         print 'YES'
         start_test(mr=mr, token=private_token)
     else:

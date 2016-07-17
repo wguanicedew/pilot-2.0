@@ -43,11 +43,15 @@ def needs_testing(mr):
 
 
 def update_pull_request(url, token, data):
-    r = requests.post(url=url,
-                      headers={"Content-Type": "application/json",
-                               "Authorization": "token %s" % token},
-                      data=json.dumps(data))
-    return r
+    result = requests.post(url=url,
+                           headers={"Content-Type": "application/json",
+                                    "Authorization": "token %s" % token},
+                           data=json.dumps(data))
+    if result.status_code == 200 or result.status_code == 201:
+        print 'OK'
+    else:
+        print 'ERROR'
+        print result.content
 
 
 def update_merg_request(mr, test_result, comment, token):
@@ -69,7 +73,7 @@ def update_merg_request(mr, test_result, comment, token):
     else:
         labels.append('Tests: FAIL')
 
-    data = {'labels': ', '.join(labels), 'body': '%s%s%s' % (mr['body'].split(split_str)[0], split_str, comment)}
+    data = {'labels': labels, 'body': '%s%s%s' % (mr['body'].split(split_str)[0], split_str, comment)}
     update_pull_request(mr['issue_url'], token, data)
 
 

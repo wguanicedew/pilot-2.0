@@ -2,3 +2,6 @@
 build
 dist
 pilot2.egg-info
+
+# JetBrains files
+.idea/

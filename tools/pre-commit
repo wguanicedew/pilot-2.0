@@ -42,14 +42,6 @@ def main():
         with file(filename, 'w') as f:
             system('git', 'show', ':' + name, stdout=f)
 
-    f = open(tempdir + '/.pep8', 'w+')
-    f.write('''[pep8]
-max-line-length=256
-
-[flake8]
-max-line-length=256
-''')
-    f.close()
     output = system('flake8', '.', cwd=tempdir)
     shutil.rmtree(tempdir)
     if output:

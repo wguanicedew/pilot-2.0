@@ -57,7 +57,7 @@ def split(val, separator=",", min_len=0, fill_last=False):
 
     if min_len > len(v_arr):
         filler = None if not fill_last or len(v_arr) < 1 else v_arr[0]
-        v_arr.extend([filler for x in range(min_len-len(v_arr))])
+        v_arr.extend([filler for x in range(min_len - len(v_arr))])
 
     return v_arr
 
@@ -572,7 +572,7 @@ def cli_parse(args):
     log.info("loading file")
     try:
         description = json.load(args.input)
-    except:
+    except IOError or ValueError:
         log.error("Could not parse file. Exiting.")
         raise
 
@@ -582,14 +582,14 @@ def cli_parse(args):
             fixed = description_oldifier(description)
         else:
             fixed = description_fixer(description)
-    except:
+    except Exception:
         log.error("Could not fix description.")
         raise
 
     log.info("saving file")
     try:
         json.dump(fixed, args.output, indent=4, sort_keys=True)
-    except:
+    except IOError or ValueError:
         log.error("Could not save fixed description.")
         raise
 

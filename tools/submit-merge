@@ -37,7 +37,7 @@ try:
     with open(root_git_dir + '/.githubkey', 'r') as f:
         private_token = f.readline().strip()
         print 'OK'
-except:
+except IOError or ValueError:
     print 'ERROR'
     print 'No github keyfile found at %s' % root_git_dir + '/.githubkey'
     sys.exit(-1)
@@ -59,7 +59,8 @@ if current_branch == 'master' or current_branch == 'dev' or current_branch == 'h
     print 'ERROR'
     print 'You are currently on branch \'%s\'. Please change to a dev/patch/hotfix branch.' % current_branch
     sys.exit(-1)
-if not current_branch.startswith('patch') and not current_branch.startswith('dev') and not current_branch.startswith('hotfix'):
+if not current_branch.startswith('patch') and not current_branch.startswith('dev') \
+        and not current_branch.startswith('hotfix'):
     print 'ERROR'
     print 'You are currently on branch \'%s\'. This is not a dev/patch/hotfix branch.' % current_branch
     sys.exit(-1)

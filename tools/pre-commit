@@ -24,15 +24,18 @@ def system(*args, **kwargs):
     out, err = proc.communicate()
     return out
 
+restricted_branches = ['master', 'dev', 'hotfix']
+
 
 def main():
-    currentbranch = system('git', 'rev-parse', '--abbrev-ref=strict', 'HEAD').rstrip('\n')
-    if currentbranch=='master' or currentbranch=='dev':
+    current_branch = system('git', 'rev-parse', '--abbrev-ref=strict', 'HEAD').rstrip('\n')
+    if current_branch in restricted_branches:
         print "You are trying to commit on your master/dev, that's probably a mistake. Exiting..."
         sys.exit(1)
     modified = re.compile('^[AM]+\s+(?P<name>.*\.py)', re.MULTILINE)
     files = system('git', 'status', '--porcelain')
     files = modified.findall(files)
+    files.append("setup.cfg")  # this will present flake configs
     tempdir = tempfile.mkdtemp()
     for name in files:
         filename = os.path.join(tempdir, name)
@@ -42,7 +45,7 @@ def main():
         with file(filename, 'w') as f:
             system('git', 'show', ':' + name, stdout=f)
 
-    output = system('flake8', '.', cwd=tempdir)
+    output = system(sys.executable, '-m', 'flake8', '.', cwd=tempdir)
     shutil.rmtree(tempdir)
     if output:
         print output,

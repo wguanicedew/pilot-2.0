@@ -10,6 +10,8 @@ import optparse
 import os
 import subprocess
 import sys
+import imp
+from distutils.spawn import find_executable
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -28,22 +30,28 @@ def run_command(cmd, redirect_output=True, check_exit_code=True, shell=False):
     Runs a command in an out-of-process shell, returning the
     output of that command.  Working directory is ROOT.
     """
-    if redirect_output:
-        stdout = subprocess.PIPE
-    else:
-        stdout = None
-
-    proc = subprocess.Popen(cmd, cwd=ROOT, stdout=stdout, shell=shell)
+    if shell:
+        cmd = ['sh', '-c', cmd]
+    proc = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE if redirect_output else None)
     output = proc.communicate()[0]
     if check_exit_code and proc.returncode != 0:
+        # print("ec = %d " % proc.returncode)
         die('Command "%s" failed.\n%s', ' '.join(cmd), output)
     return output
 
 
-HAS_EASY_INSTALL = bool(run_command(['which', 'easy_install'], check_exit_code=False).strip())
-HAS_VIRTUALENV = bool(run_command(['which', 'virtualenv'], check_exit_code=False).strip())
-HAS_PIP = bool(run_command(['which', 'pip'], check_exit_code=False).strip())
-HAS_CURL = bool(run_command(['which', 'curl'], check_exit_code=False).strip())
+def has_module(mod):
+    try:
+        imp.find_module(mod)
+        return True
+    except ImportError:
+        return False
+
+
+HAS_EASY_INSTALL = bool(find_executable("easy_install"))
+HAS_VIRTUALENV = has_module('virtualenv')
+HAS_PIP = has_module('pip')
+HAS_CURL = bool(find_executable('curl'))
 
 
 def check_dependencies():
@@ -82,14 +90,15 @@ def create_virtualenv(venv=VENV):
     """
     if HAS_VIRTUALENV:
         print 'Creating venv...'
-        run_command(['virtualenv', '-q', '--no-site-packages', VENV])
+        run_command([sys.executable, "-m", 'virtualenv', '-q', '--no-site-packages', VENV])
     elif HAS_CURL:
         print 'Creating venv via curl...',
-        if not run_command("curl -s https://raw.github.com/pypa/virtualenv/master/virtualenv.py | %s - --no-site-packages %s" % (sys.executable, VENV), shell=True):
+        if not run_command("curl -s https://raw.github.com/pypa/virtualenv/master/virtualenv.py | %s -"
+                           " --no-site-packages %s" % (sys.executable, VENV), shell=True):
             die('Failed to install virtualenv with curl.')
     print 'done.'
     print 'Installing pip in virtualenv...',
-    if not run_command(['tools/with_venv.sh', 'easy_install', 'pip>1.0']).strip():
+    if not run_command(['sh', 'tools/with_venv.sh', 'easy_install', 'pip>1.0']).strip():
         die("Failed to install pip.")
     print 'done.'
 

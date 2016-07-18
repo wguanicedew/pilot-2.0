@@ -126,7 +126,7 @@ class Pilot:
 
         self.node_name = socket.gethostbyaddr(socket.gethostname())[0]
         if "_CONDOR_SLOT" in os.environ:
-            self.node_name = os.environ.get("_CONDOR_SLOT", '')+"@"+self.node_name
+            self.node_name = os.environ.get("_CONDOR_SLOT", '') + "@" + self.node_name
 
         self.pilot_id = self.node_name + (":%d" % os.getpid())
 
@@ -195,7 +195,7 @@ class Pilot:
             self.get_queuedata()
             job = self.get_job()
             job.run()
-        except:
+        except Exception:
             log.error("During the run encountered uncaught exception.")
             log.error(traceback.format_exc())
             pass
@@ -212,10 +212,10 @@ class Pilot:
             tz_sign = '-'
         else:
             tz_sign = '+'
-        timezone_hours = int(timezone/3600)
+        timezone_hours = int(timezone / 3600)
 
         return str("%s%s%02d%02d" % (time.strftime("%Y-%m-%dT%H:%M:%S", t), tz_sign, timezone_hours,
-                                     int(timezone/60-timezone_hours*60)))
+                                     int(timezone / 60 - timezone_hours * 60)))
 
     def curl_query(self, url, body=None, **kwargs):
         """
@@ -344,7 +344,7 @@ class Pilot:
                 job_desc = json.loads(_str)
             except ValueError:
                 log.error("JSON parser failed.")
-                log.error("Got from server: "+_str)
+                log.error("Got from server: " + _str)
                 raise
 
         log.info("Got job description.")

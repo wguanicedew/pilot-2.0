@@ -54,36 +54,30 @@ def update_pull_request(url, token, data):
         print result.content
 
 
-def update_merg_request(mr, test_result, comment, token):
+def list_substract(_list, substraction):
+    for obj in substraction:
+        try:
+            _list.remove(obj)
+        except ValueError:
+            pass
+
+
+def update_merge_request(merge_request, test_result, for_manual, comment, token):
     print '  Updating Merge request and putting comment ...'
-    resp = requests.get(url=mr['issue_url'])
+    resp = requests.get(url=merge_request['issue_url'])
     issue = json.loads(resp.text)
     labels = [label['name'] for label in issue['labels']]
-    try:
-        labels.remove('Tests: OK')
-    except:
-        pass
-    try:
-        labels.remove('Tests: FAIL')
-    except:
-        pass
 
-    if test_result:
-        labels.append('Tests: OK')
-    else:
-        labels.append('Tests: FAIL')
+    list_substract(labels, ['Tests: OK', 'Tests: FAIL', 'Tests: MANUAL'])
 
-    data = {'labels': labels, 'body': '%s%s%s' % (mr['body'].split(split_str)[0], split_str, comment)}
-    update_pull_request(mr['issue_url'], token, data)
+    labels.append('Tests: ' + 'OK' if test_result and not for_manual
+                  else 'MANUAL' if test_result else 'FAIL')
+
+    data = {'labels': labels, 'body': '%s%s%s' % (merge_request['body'].split(split_str)[0], split_str, comment)}
+    update_pull_request(merge_request['issue_url'], token, data)
 
 
-def start_test(mr, token):
-    tests_passed = True
-    error_lines = []
-    print 'Starting testing for MR %s ...' % mr['head']['label']
-    # Add remote to user
-    commands.getstatusoutput('git remote add %s %s' % (mr['head']['label'].split(":")[0], mr['head']['repo']['git_url']))
-
+def prepare_repository_before_testing():
     # Fetch all
     print '  git fetch --all --prune'
     if commands.getstatusoutput('git fetch --all --prune')[0] != 0:
@@ -100,63 +94,84 @@ def start_test(mr, token):
         print 'Error while rebaseing master'
         sys.exit(-1)
 
+
+def test_output(command, title="SOME TEST", test=lambda x: len(x) != 0):
+    command = ("source .venv/bin/activate;"
+               "pip install -r tools/pip-requires;pip install -r tools/pip-requires-test;"  # maybe do these in a
+                                                                                            # separate call?
+               ) + command
+    process = subprocess.Popen(['sh', '-c', command], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out = process.communicate()[0]
+
+    if test(out):
+        return ''
+
+    return '##### ' + title + ":\n```\n" + out + "\n```\n"
+
+
+def test_request(merge_request):
+    tests_passed = True
+    error_lines = ''
+
     # Check for Cross Merges
-    if mr['head']['ref'].lower().startswith('patch'):
+    if merge_request['head']['ref'].lower().startswith('patch'):
         print '  Checking for cross-merges:'
-        commits = commands.getoutput('git log master..remotes/%s/%s | grep ^commit' % (mr['head']['label'].split(":")[0], mr['head']['label'].split(":")[1]))
+        commits = commands.getoutput('git log master..remotes/%s/%s | grep ^commit' %
+                                     (merge_request['head']['label'].split(":")[0],
+                                      merge_request['head']['label'].split(":")[1]))
         for commit in commits.splitlines():
             commit = commit.partition(' ')[2]
             if commands.getstatusoutput('git branch --contains %s | grep dev' % commit)[0] == 0:
                 print '    Found cross-merge problem with commit %s' % commit
                 tests_passed = False
-                error_lines.append('##### CROSS-MERGE TESTS:\n')
-                error_lines.append('```\n')
-                error_lines.append('This patch is suspicious. It looks like there are feature-commits pulled into the master branch!\n')
-                error_lines.append('```\n')
+                error_lines += '##### CROSS-MERGE TESTS:\n'
+                error_lines += '```\n'
+                error_lines += 'This patch is suspicious. It looks like there are feature-commits pulled into' \
+                               ' the master branch!\n'
+                error_lines += '```\n'
                 break
 
     # Checkout the branch to test
-    print '  git checkout remotes/%s' % (mr['head']['label'].replace(":", "/"))
-    if commands.getstatusoutput('git checkout remotes/%s' % (mr['head']['label'].replace(":", "/")))[0] != 0:
+    print '  git checkout remotes/%s' % (merge_request['head']['label'].replace(":", "/"))
+    if commands.getstatusoutput('git checkout remotes/%s' % (merge_request['head']['label'].replace(":", "/")))[0] != 0:
         print 'Error while checking out branch'
         sys.exit(-1)
 
-    command = """
-    cd %s; source .venv/bin/activate;
-    pip install -r tools/pip-requires;
-    pip install -r tools/pip-requires-test;
-    find lib -iname "*.pyc" | xargs rm; rm -rf /tmp/.pilot_*/;
-    nosetests -v > /tmp/pilot_nose.txt 2> /tmp/pilot_nose.txt;
-    flake8 *.py > /tmp/pilot_flake8.txt;
-    """ % (root_git_dir)  # NOQA
-    print '  %s' % command
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, shell=True)
-    process.communicate()
+    cwd = os.getcwd()
+    os.chdir(root_git_dir)
 
-    with open('/tmp/pilot_nose.txt', 'r') as f:
-        lines = f.readlines()
-        if lines[-1] != 'OK\n':
-            tests_passed = False
-            error_lines.append('##### UNIT TESTS:\n')
-            error_lines.append('```\n')
-            error_lines.extend(lines)
-            error_lines.append('```\n')
+    error_lines += test_output("nosetests -v", title="UNIT TESTS", test=lambda x: x.endswith("OK\n"))
+    error_lines += test_output("flake8 .", title="FLAKE8")
+    error_lines += test_output('git diff HEAD^ HEAD|grep -P "^(?i)\+((.*#\s*NOQA:?\s*|(\s*#\s*flake8:\s*noqa\s*))$"',
+                               title="BROAD NOQA'S")
+    noqas = test_output('git diff HEAD^ HEAD|grep -P "^(?i)\+.*#\s*NOQA:\s*[a-z][0-9]{0,3}(\s*,\s*[a-z][0-9]{0,3})*$"',
+                        title="JUST NOQA'S")
 
-    if os.stat('/tmp/pilot_flake8.txt').st_size != 0:
-        with open('/tmp/pilot_flake8.txt', 'r') as f:
-            lines = f.readlines()
-            tests_passed = False
-            error_lines.append('##### FLAKE8:\n')
-            error_lines.append('```\n')
-            error_lines.extend(lines)
-            error_lines.append('```\n')
+    tests_passed = tests_passed and error_lines == ''
 
-    if tests_passed:
-        error_lines.insert(0, '#### BUILD-BOT TEST RESULT: OK\n\n')
-    else:
-        error_lines.insert(0, '#### BUILD-BOT TEST RESULT: FAIL\n\n')
+    error_lines += noqas
 
-    update_merg_request(mr=mr, test_result=tests_passed, comment=error_lines, token=token)
+    for_manual_merge = noqas != 0
+
+    error_lines = '#### BUILD-BOT TEST RESULT: ' + 'OK' if tests_passed and not for_manual_merge\
+        else 'FOR MANUAL MERGE' if tests_passed else 'FAIL' + '\n\n' + error_lines
+
+    os.chdir(cwd)
+
+    return error_lines, tests_passed, for_manual_merge
+
+
+def start_test(merge_request, token):
+    print 'Starting testing for MR %s ...' % merge_request['head']['label']
+    # Add remote to user
+    commands.getstatusoutput('git remote add %s %s' % (merge_request['head']['label'].split(":")[0],
+                                                       merge_request['head']['repo']['git_url']))
+
+    prepare_repository_before_testing()
+    error_lines, tests_passed, for_manual = test_request(merge_request)
+
+    update_merge_request(merge_request=merge_request, test_result=tests_passed, comment=error_lines, token=token,
+                         for_manual=for_manual)
 
     # Checkout original master
     print '  git checkout master'
@@ -182,7 +197,7 @@ print 'Loading private token ...'
 try:
     with open(root_git_dir + '/.githubkey', 'r') as f:
         private_token = f.readline().strip()
-except:
+except IOError:
     print 'No github keyfile found at %s' % root_git_dir + '/.githubkey'
     sys.exit(-1)
 
@@ -191,18 +206,19 @@ print 'Loading state file ...'
 try:
     with open('/tmp/pilotbuildbot.states') as data_file:
         states = json.load(data_file)
-except:
+except IOError or ValueError:
     states = {}
 
 # Get all open merge requests
 print 'Getting all open merge requests ...'
 resp = requests.get(url=project_url, params={'state': 'open'})
-mr_list = json.loads(resp.text)
-for mr in mr_list:
-    print 'Checking MR %s -> %s if it needs testing ...' % (mr['head']['label'], mr['base']['label']),
-    if 'dev' in mr['base']['label'] and needs_testing(mr):
+merge_request_list = json.loads(resp.text)
+for merge_request in merge_request_list:
+    print 'Checking MR %s -> %s if it needs testing ...' % (merge_request['head']['label'],
+                                                            merge_request['base']['label'])
+    if 'dev' in merge_request['base']['label'] and needs_testing(merge_request):
         print 'YES'
-        start_test(mr=mr, token=private_token)
+        start_test(merge_request=merge_request, token=private_token)
     else:
         print 'NO'
 

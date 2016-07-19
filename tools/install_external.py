@@ -16,7 +16,6 @@ import subprocess
 import sys
 import tempfile
 import imp
-from distutils.spawn import find_executable
 
 try:
     from urllib.request import urlopen
@@ -26,6 +25,7 @@ except ImportError:
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 PIP_REQUIRES = os.path.join(ROOT, 'tools', 'pip-requires')
 PIP_REQUIRES_TEST = os.path.join(ROOT, 'tools', 'pip-requires-test')
+EXTERNALS = os.path.join(ROOT, 'tools', 'externals')
 
 
 def die(message, *args):
@@ -85,7 +85,7 @@ def install_pip():
     try:
         download('https://bootstrap.pypa.io/get-pip.py', os.path.join(tempdir, 'get-pip.py'))
         run_command([sys.executable, os.path.join(tempdir, "get-pip.py"),
-                     '--prefix=' + os.path.abspath('tools/externals')])
+                     '--prefix=' + EXTERNALS])
     finally:
         shutil.rmtree(tempdir)
 
@@ -94,7 +94,7 @@ def install_dependencies():
     """
     Install external dependencies
     """
-    lib_dir = os.path.join("tools", "externals", "lib")
+    lib_dir = os.path.join(EXTERNALS, "lib")
     if os.path.exists(lib_dir):
         for pathname in os.listdir(lib_dir):
             if pathname.startswith('python'):
@@ -110,10 +110,12 @@ def install_dependencies():
 
     python_path = os.path.abspath(os.path.join(lib_dir, 'python', 'site-packages'))
     if "PYTHONPATH" in os.environ:
-        python_path = os.environ["PYTHONPATH"] + ":" + python_path
+        python_path = python_path + ":" + os.environ["PYTHONPATH"]
     os.environ["PYTHONPATH"] = python_path
+    os.environ["LD_LIBRARY_PATH"] = lib_dir + ":" + os.environ["LD_LIBRARY_PATH"]
 
-    run_command([sys.executable, '-m', "pip", 'install', '-r', PIP_REQUIRES_TEST, '--prefix=./tools/externals/'])
+    run_command([sys.executable, '-m', "pip", 'install', '-r', PIP_REQUIRES_TEST,
+                 '--prefix=' + EXTERNALS], redirect_output=False)
 
 
 def print_help():

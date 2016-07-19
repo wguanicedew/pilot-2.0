@@ -16,11 +16,85 @@ import requests
 import sys
 import subprocess
 import time
+import errno
+
+
+class ProcessRunningException(BaseException):
+    pass
+
+
+class PidFile:
+    def __init__(self, path, log=sys.stdout.write, warn=sys.stderr.write):
+        self.__pid_file = path
+        self.__log = log
+        self.__warn = warn
+
+    def __enter__(self):
+        try:
+            self.__pid_fd = os.open(self.__pid_file, os.O_CREAT | os.O_WRONLY | os.O_EXCL)
+        except OSError as e:
+            if e.errno == errno.EEXIST:
+                pid = self._check()
+                if pid:
+                    self.__pid_fd = None
+                    raise ProcessRunningException('process already running in %s as pid %s' % (self.__pid_file, pid))
+                else:
+                    os.remove(self.__pid_file)
+                    self.__warn('removed staled lockfile %s' % self.__pid_file)
+                    self.__pid_fd = os.open(self.__pid_file, os.O_CREAT | os.O_WRONLY | os.O_EXCL)
+            else:
+                raise
+
+        os.write(self.__pid_fd, str(os.getpid()))
+        os.close(self.__pid_fd)
+        return self
+
+    def __exit__(self, t, e, tb):
+        # return false to raise, true to pass
+        if t is None:
+            # normal condition, no exception
+            self._remove()
+            return True
+        elif t is ProcessRunningException:
+            # do not remove the other process lockfile
+            return False
+        else:
+            # other exception
+            if self.__pid_fd:
+                # this was our lockfile, removing
+                self._remove()
+            return False
+
+    def _remove(self):
+        os.remove(self.__pid_file)
+
+    def _check(self):
+        """
+        check if a process is still running the process id is expected to be in pidfile, which should exist. if it
+        is still running, returns the pid, if not, return False.
+        """
+        with open(self.__pid_file, 'r') as f:
+            try:
+                pidstr = f.read()
+                pid = int(pidstr)
+            except ValueError:
+                # not an integer
+                self.__log("not an integer: %s" % pidstr)
+                return False
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                self.__log("can't deliver signal to %s" % pid)
+                return False
+            else:
+                return pid
+
 
 requests.packages.urllib3.disable_warnings()
 
 project_url = "https://api.github.com/repos/PanDAWMS/pilot-2.0/pulls"
 split_str = "\n####PILOT##ATUO##TEST####\n"
+pid_file = os.path.abspath(os.path.expanduser('/tmp/pilot_test.pid'))
 
 
 def needs_testing(mr):
@@ -179,51 +253,40 @@ def start_test(merge_request, token):
         print 'Error while checking out master'
         sys.exit(-1)
 
-print 'Checking if a job is currently running ...'
-if os.path.isfile('/tmp/pilot_test.pid'):
-    # Check if the pid file is older than 90 minutes
-    if os.stat('/tmp/pilot_test.pid').st_mtime < time.time() - 60 * 90:
-        os.remove('/tmp/pilot_test.pid')
-        open('/tmp/pilot_test.pid', 'a').close()
-    else:
+with PidFile(pid_file):
+
+    root_git_dir = commands.getstatusoutput('git rev-parse --show-toplevel')[1]
+
+    # Load private_token
+    print 'Loading private token ...'
+    try:
+        with open(root_git_dir + '/.githubkey', 'r') as f:
+            private_token = f.readline().strip()
+    except IOError:
+        print 'No github keyfile found at %s' % root_git_dir + '/.githubkey'
         sys.exit(-1)
-else:
-    open('/tmp/pilot_test.pid', 'a').close()
 
-root_git_dir = commands.getstatusoutput('git rev-parse --show-toplevel')[1]
+    # Load state file
+    print 'Loading state file ...'
+    try:
+        with open('/tmp/pilotbuildbot.states') as data_file:
+            states = json.load(data_file)
+    except IOError or ValueError:
+        states = {}
 
-# Load private_token
-print 'Loading private token ...'
-try:
-    with open(root_git_dir + '/.githubkey', 'r') as f:
-        private_token = f.readline().strip()
-except IOError:
-    print 'No github keyfile found at %s' % root_git_dir + '/.githubkey'
-    sys.exit(-1)
+    # Get all open merge requests
+    print 'Getting all open merge requests ...'
+    resp = requests.get(url=project_url, params={'state': 'open'})
+    merge_request_list = json.loads(resp.text)
+    for merge_request in merge_request_list:
+        print 'Checking MR %s -> %s if it needs testing ...' % (merge_request['head']['label'],
+                                                                merge_request['base']['label'])
+        if 'dev' in merge_request['base']['label'] and needs_testing(merge_request):
+            print 'YES'
+            start_test(merge_request=merge_request, token=private_token)
+        else:
+            print 'NO'
 
-# Load state file
-print 'Loading state file ...'
-try:
-    with open('/tmp/pilotbuildbot.states') as data_file:
-        states = json.load(data_file)
-except IOError or ValueError:
-    states = {}
-
-# Get all open merge requests
-print 'Getting all open merge requests ...'
-resp = requests.get(url=project_url, params={'state': 'open'})
-merge_request_list = json.loads(resp.text)
-for merge_request in merge_request_list:
-    print 'Checking MR %s -> %s if it needs testing ...' % (merge_request['head']['label'],
-                                                            merge_request['base']['label'])
-    if 'dev' in merge_request['base']['label'] and needs_testing(merge_request):
-        print 'YES'
-        start_test(merge_request=merge_request, token=private_token)
-    else:
-        print 'NO'
-
-print 'Writing state file ...'
-with open('/tmp/pilotbuildbot.states', 'w') as outfile:
-    json.dump(states, outfile)
-
-os.remove('/tmp/pilot_test.pid')
+    print 'Writing state file ...'
+    with open('/tmp/pilotbuildbot.states', 'w') as outfile:
+        json.dump(states, outfile)

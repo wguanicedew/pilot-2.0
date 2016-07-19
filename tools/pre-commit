@@ -61,6 +61,5 @@ def main():
             print "found NOQA: " + match[0][3] + ", the merge will need a revision."
 
 
-
 if __name__ == '__main__':
     main()

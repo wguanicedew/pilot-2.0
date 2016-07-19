@@ -56,31 +56,23 @@ HAS_CURL = bool(find_executable('curl'))
 
 def check_dependencies():
     """Make sure virtualenv is in the path."""
+    global HAS_VIRTUALENV
 
     if not HAS_VIRTUALENV:
         print 'virtualenv not found.'
         # Try installing it via curl/pip/easy_install...
         if HAS_PIP:
-            print 'Installing virtualenv via pip...',
-            if not run_command(['which', 'pip']):
-                die('ERROR: virtualenv not found.\n\n'
-                    'Pilot development requires virtualenv, please install'
-                    ' it using your favorite package management tool')
-            else:
-                if not run_command(['pip', 'install', 'virtualenv']).strip():
-                    die("Failed to install virtualenv.")
+            print 'Installing virtualenv via pip...'
+            if not run_command([sys.executable, '-m', 'pip', 'install', 'virtualenv']).strip():
+                die("Failed to install virtualenv.")
             print 'done.'
         elif HAS_EASY_INSTALL:
-            print 'Installing virtualenv via easy_install...',
-            if not run_command(['which', 'easy_install']):
-                die('ERROR: virtualenv not found.\n\n'
-                    'Pilot development requires virtualenv, please install'
-                    ' it using your favorite package management tool')
-            else:
-                if not run_command(['easy_install', 'virtualenv']).strip():
-                    die("Failed to install virtualenv.")
+            print 'Installing virtualenv via easy_install...'
+            if not run_command(['easy_install', 'virtualenv']).strip():
+                die("Failed to install virtualenv.")
             print 'done.'
     print 'done.'
+    HAS_VIRTUALENV = True
 
 
 def create_virtualenv(venv=VENV):

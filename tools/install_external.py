@@ -73,7 +73,7 @@ def install_pip():
     tempdir = tempfile.mkdtemp()
     run_command(['wget', '-O', os.path.join(tempdir, 'get-pip.py'), 'https://bootstrap.pypa.io/get-pip.py'])
     run_command([sys.executable, os.path.join(tempdir, "get-pip.py"),
-                 '--root=' + os.path.abspath('tools/externals'), "--ignore-installed"])
+                 '--prefix=' + os.path.abspath('tools/externals'), "--ignore-installed"])
     shutil.rmtree(tempdir)
 
 
@@ -81,7 +81,7 @@ def install_dependencies():
     """
     Install external dependencies
     """
-    lib_dir = os.path.join("tools", "externals", "usr", "lib")
+    lib_dir = os.path.join("tools", "externals", "lib")
     if os.path.exists(lib_dir):
         for pathname in os.listdir(lib_dir):
             if pathname.startswith('python'):
@@ -100,7 +100,7 @@ def install_dependencies():
         python_path = os.environ["PYTHONPATH"] + ":" + python_path
     os.environ["PYTHONPATH"] = python_path
 
-    run_command([sys.executable, '-m', "pip", 'install', '-r', PIP_REQUIRES_TEST, '--root=./tools/externals/'])
+    run_command([sys.executable, '-m', "pip", 'install', '-r', PIP_REQUIRES_TEST, '--prefix=./tools/externals/'])
 
 
 def print_help():

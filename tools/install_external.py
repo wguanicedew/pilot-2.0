@@ -118,7 +118,7 @@ def main():
     cwd = os.getcwd()
     print os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    # configure_git()
+    configure_git()
     if not HAS_PIP:
         print "Installing pip via wget"
         install_pip()

@@ -19,6 +19,15 @@ import time
 import errno
 
 
+requests.packages.urllib3.disable_warnings()
+
+project_url = "https://api.github.com/repos/PanDAWMS/pilot-2.0/pulls"
+split_str = "\n####PILOT##ATUO##TEST####\n"
+pid_file = os.path.abspath(os.path.expanduser('/tmp/pilot_test.pid'))
+states_file = '/tmp/pilotbuildbot.states'
+github_keyfile = '.githubkey'
+
+
 class ProcessRunningException(BaseException):
     pass
 
@@ -90,22 +99,15 @@ class PidFile:
                 return pid
 
 
-requests.packages.urllib3.disable_warnings()
-
-project_url = "https://api.github.com/repos/PanDAWMS/pilot-2.0/pulls"
-split_str = "\n####PILOT##ATUO##TEST####\n"
-pid_file = os.path.abspath(os.path.expanduser('/tmp/pilot_test.pid'))
-
-
-def needs_testing(mr):
+def needs_testing(merge_request):
     needs_testing = True
 
-    issue_url = mr['issue_url']
+    issue_url = merge_request['issue_url']
     resp = requests.get(url=issue_url)
     issue = json.loads(resp.text)
     labels = [label['name'] for label in issue['labels']]
 
-    pushed_at = mr['head']['repo']['pushed_at']
+    pushed_at = merge_request['head']['repo']['pushed_at']
     updated_at = issue['updated_at']
 
     pushed_at_time = time.mktime(datetime.datetime.strptime(pushed_at, "%Y-%m-%dT%H:%M:%SZ").timetuple())
@@ -136,16 +138,17 @@ def list_substract(_list, substraction):
             pass
 
 
-def update_merge_request(merge_request, test_result, for_manual, comment, token):
+def update_merge_request(merge_request, test_result, found_noqas, comment, token):
     print '  Updating Merge request and putting comment ...'
     resp = requests.get(url=merge_request['issue_url'])
     issue = json.loads(resp.text)
     labels = [label['name'] for label in issue['labels']]
 
-    list_substract(labels, ['Tests: OK', 'Tests: FAIL', 'Tests: MANUAL'])
+    list_substract(labels, ['Tests: OK', 'Tests: FAIL', 'Tests: NOQA ISSUE'])
 
-    labels.append('Tests: ' + 'OK' if test_result and not for_manual
-                  else 'MANUAL' if test_result else 'FAIL')
+    labels.append('Tests: ' + 'OK' if test_result else 'FAIL')
+    if found_noqas:
+        labels.append('Tests: NOQA ISSUE')
 
     data = {'labels': labels, 'body': '%s%s%s' % (merge_request['body'].split(split_str)[0], split_str, comment)}
     update_pull_request(merge_request['issue_url'], token, data)
@@ -169,11 +172,14 @@ def prepare_repository_before_testing():
         sys.exit(-1)
 
 
+def update_venv():
+    command = "source .venv/bin/activate;pip install -r tools/pip-requires;pip install -r tools/pip-requires-test;"
+    process = subprocess.Popen(['sh', '-c', command], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    process.communicate()
+
+
 def test_output(command, title="SOME TEST", test=lambda x: len(x) != 0):
-    command = ("source .venv/bin/activate;"
-               "pip install -r tools/pip-requires;pip install -r tools/pip-requires-test;"  # maybe do these in a
-                                                                                            # separate call?
-               ) + command
+    command = "source .venv/bin/activate;" + command
     process = subprocess.Popen(['sh', '-c', command], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out = process.communicate()[0]
 
@@ -213,6 +219,7 @@ def test_request(merge_request):
 
     cwd = os.getcwd()
     os.chdir(root_git_dir)
+    update_venv()
 
     error_lines += test_output("nosetests -v", title="UNIT TESTS", test=lambda x: x.endswith("OK\n"))
     error_lines += test_output("flake8 .", title="FLAKE8")
@@ -225,27 +232,27 @@ def test_request(merge_request):
 
     error_lines += noqas
 
-    for_manual_merge = noqas != 0
+    found_noqas = noqas != 0
 
-    error_lines = '#### BUILD-BOT TEST RESULT: ' + 'OK' if tests_passed and not for_manual_merge\
-        else 'FOR MANUAL MERGE' if tests_passed else 'FAIL' + '\n\n' + error_lines
+    error_lines = '#### BUILD-BOT TEST RESULT: ' + 'OK' if tests_passed else 'FAIL' + "\nWARNING: FOUND NOQAS!" \
+        if found_noqas else "" + '\n\n' + error_lines
 
     os.chdir(cwd)
 
-    return error_lines, tests_passed, for_manual_merge
+    return error_lines, tests_passed, found_noqas
 
 
-def start_test(merge_request, token):
+def update_tests(merge_request, token):
     print 'Starting testing for MR %s ...' % merge_request['head']['label']
     # Add remote to user
     commands.getstatusoutput('git remote add %s %s' % (merge_request['head']['label'].split(":")[0],
                                                        merge_request['head']['repo']['git_url']))
 
     prepare_repository_before_testing()
-    error_lines, tests_passed, for_manual = test_request(merge_request)
+    error_lines, tests_passed, noqas = test_request(merge_request)
 
     update_merge_request(merge_request=merge_request, test_result=tests_passed, comment=error_lines, token=token,
-                         for_manual=for_manual)
+                         found_noqas=noqas)
 
     # Checkout original master
     print '  git checkout master'
@@ -256,20 +263,21 @@ def start_test(merge_request, token):
 with PidFile(pid_file):
 
     root_git_dir = commands.getstatusoutput('git rev-parse --show-toplevel')[1]
+    os.chdir(root_git_dir)
 
     # Load private_token
     print 'Loading private token ...'
     try:
-        with open(root_git_dir + '/.githubkey', 'r') as f:
+        with open(github_keyfile, 'r') as f:
             private_token = f.readline().strip()
     except IOError:
-        print 'No github keyfile found at %s' % root_git_dir + '/.githubkey'
+        print 'No github keyfile found at ' + os.path.join(os.getcwd(), github_keyfile)
         sys.exit(-1)
 
     # Load state file
     print 'Loading state file ...'
     try:
-        with open('/tmp/pilotbuildbot.states') as data_file:
+        with open(states_file) as data_file:
             states = json.load(data_file)
     except IOError or ValueError:
         states = {}
@@ -283,10 +291,10 @@ with PidFile(pid_file):
                                                                 merge_request['base']['label'])
         if 'dev' in merge_request['base']['label'] and needs_testing(merge_request):
             print 'YES'
-            start_test(merge_request=merge_request, token=private_token)
+            update_tests(merge_request=merge_request, token=private_token)
         else:
             print 'NO'
 
     print 'Writing state file ...'
-    with open('/tmp/pilotbuildbot.states', 'w') as outfile:
+    with open(states_file, 'w') as outfile:
         json.dump(states, outfile)

@@ -18,6 +18,11 @@ import tempfile
 import imp
 from distutils.spawn import find_executable
 
+try:
+    from urllib.request import urlopen
+except ImportError:
+    from urllib2 import urlopen
+
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 PIP_REQUIRES = os.path.join(ROOT, 'tools', 'pip-requires')
 PIP_REQUIRES_TEST = os.path.join(ROOT, 'tools', 'pip-requires-test')
@@ -26,6 +31,15 @@ PIP_REQUIRES_TEST = os.path.join(ROOT, 'tools', 'pip-requires-test')
 def die(message, *args):
     print >> sys.stderr, message % args
     sys.exit(1)
+
+
+def download(url, to_path):
+    print 'Downloading %s into %s' % (url, to_path)
+    req = urlopen(url)
+    with open(to_path, 'wb') as fp:
+        for line in req:
+            fp.write(line)
+    return to_path
 
 
 def run_command(cmd, redirect_output=True, check_exit_code=True, shell=False):
@@ -51,7 +65,6 @@ def has_module(mod):
         return False
 
 HAS_PIP = has_module('pip')
-HAS_WGET = bool(find_executable('wget'))
 
 
 def configure_git():
@@ -66,15 +79,15 @@ def install_pip():
     """
     Install pip to tools/externals
     """
-    print "Installing pip via wget"
-    if not HAS_WGET:
-        die("ERROR: wget not found, please install.")
+    print "Installing pip via download"
 
     tempdir = tempfile.mkdtemp()
-    run_command(['wget', '-O', os.path.join(tempdir, 'get-pip.py'), 'https://bootstrap.pypa.io/get-pip.py'])
-    run_command([sys.executable, os.path.join(tempdir, "get-pip.py"),
-                 '--prefix=' + os.path.abspath('tools/externals')])
-    shutil.rmtree(tempdir)
+    try:
+        download('https://bootstrap.pypa.io/get-pip.py', os.path.join(tempdir, 'get-pip.py'))
+        run_command([sys.executable, os.path.join(tempdir, "get-pip.py"),
+                     '--prefix=' + os.path.abspath('tools/externals')])
+    finally:
+        shutil.rmtree(tempdir)
 
 
 def install_dependencies():
@@ -120,7 +133,6 @@ def main():
     os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     configure_git()
     if not HAS_PIP:
-        print "Installing pip via wget"
         install_pip()
 
     print "Installing dependencies via pip"

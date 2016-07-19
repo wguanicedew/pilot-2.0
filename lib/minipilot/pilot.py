@@ -116,8 +116,6 @@ class Pilot:
                                     help="Disable job server updates")
         self.argParser.add_argument("--simulate_rucio", action='store_true',
                                     help="Disable rucio, just simulate")
-        self.argParser.add_argument("--jfk", action='store_true',
-                                    help="Kills John F. Kennedy if he is alive.")
 
         self.logger = logging.getLogger("pilot")
         self.user_agent += " (Python %s; %s %s; rv:alpha) minipilot/daniel" % \

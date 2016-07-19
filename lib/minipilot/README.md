@@ -73,8 +73,6 @@ With that you can:
 3. Setup other paths for certs or else
 4. Use another servers & ports
 5. Use preloaded descriptions and configs
-6. Kill JFK
-7. Rule the world (groot permissions might be needed)
 
 
 More usage

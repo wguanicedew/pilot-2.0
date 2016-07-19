@@ -51,5 +51,16 @@ def main():
         print output,
         sys.exit(1)
 
+    noqa = re.compile('^(?i)\+((.*#\s*(NOQA):?\s*(.*))|(\s*#\s*(flake8):\s*noqa\s*))$')
+    matches = filter(lambda x: len(x) > 0, map(lambda x: noqa.findall(x), system('git', 'diff').split("\n")))
+    for match in matches:
+        if len(match[0][3]) == 0:
+            print "found unspecified NOQA in the project, this is restricted."
+            sys.exit(1)
+        else:
+            print "found NOQA: " + match[0][3] + ", the merge will need a revision."
+
+
+
 if __name__ == '__main__':
     main()

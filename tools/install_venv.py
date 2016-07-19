@@ -80,16 +80,18 @@ def create_virtualenv(venv=VENV):
     Creates the virtual environment and installs PIP only into the
     virtual environment
     """
+    global HAS_VIRTUALENV
     if HAS_VIRTUALENV:
         print 'Creating venv...'
         run_command([sys.executable, "-m", 'virtualenv', '-q', '--no-site-packages', VENV])
     elif HAS_CURL:
         print 'Creating venv via curl...',
-        if not run_command("curl -s https://raw.github.com/pypa/virtualenv/master/virtualenv.py | %s -"
+        if not run_command("curl -sL https://raw.github.com/pypa/virtualenv/master/virtualenv.py | %s -"
                            " --no-site-packages %s" % (sys.executable, VENV), shell=True):
             die('Failed to install virtualenv with curl.')
+        HAS_VIRTUALENV = True
     print 'done.'
-    print 'Installing pip in virtualenv...',
+    print 'Installing pip into virtualenv...',
     if not run_command(['sh', 'tools/with_venv.sh', 'easy_install', 'pip>1.0']).strip():
         die("Failed to install pip.")
     print 'done.'

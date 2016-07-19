@@ -59,7 +59,7 @@ def configure_git():
     Configure git to add git hooks
     """
     print "Configure git"
-    run_command(['sh', "%s/tools/configure_git.sh" % ROOT])
+    run_command(['sh', "./tools/configure_git.sh"])
 
 
 def install_pip():
@@ -73,7 +73,7 @@ def install_pip():
     tempdir = tempfile.mkdtemp()
     run_command(['wget', '-O', os.path.join(tempdir, 'get-pip.py'), 'https://bootstrap.pypa.io/get-pip.py'])
     run_command([sys.executable, os.path.join(tempdir, "get-pip.py"),
-                 '--root=' + os.path.join(ROOT, 'tools/externals'), "--ignore-installed"])
+                 '--root=' + os.path.abspath('tools/externals'), "--ignore-installed"])
     shutil.rmtree(tempdir)
 
 
@@ -81,21 +81,26 @@ def install_dependencies():
     """
     Install external dependencies
     """
-    lib_dir = os.path.join(ROOT, "tools", "externals", "usr", "lib")
-    for pathname in os.listdir(lib_dir):
-        if pathname.startswith('python'):
-            lib_path = os.path.join(lib_dir, pathname)
-            link_path = os.path.join(lib_dir, "python")
-            if not os.path.exists(link_path):
-                os.symlink(lib_path, link_path)
-            elif not os.path.exists(os.readlink(link_path)):
-                os.remove(link_path)
-                os.symlink(lib_path, link_path)
-    env_export = "export PYTHONPATH=$PYTHONPATH:./tools/externals/usr/lib/python/site-packages"
-    # run_command("%s;%s/tools/externals/usr/bin/pip install -r %s -t %s/externals/" % (env_export, ROOT, PIP_REQUIRES,
-    # ROOT), shell=True)
-    run_command(['sh', '-c', "%s;./tools/externals/usr/bin/pip install -r %s --root=./tools/externals/" %
-                (env_export, PIP_REQUIRES_TEST)])
+    lib_dir = os.path.join("tools", "externals", "usr", "lib")
+    if os.path.exists(lib_dir):
+        for pathname in os.listdir(lib_dir):
+            if pathname.startswith('python'):
+                lib_path = os.path.join(lib_dir, pathname)
+                link_path = os.path.join(lib_dir, "python")
+                if not os.path.exists(link_path):
+                    os.symlink(lib_path, link_path)
+                elif not os.path.exists(os.readlink(link_path)):
+                    os.remove(link_path)
+                    os.symlink(lib_path, link_path)
+    else:
+        os.makedirs(lib_dir)
+
+    python_path = os.path.abspath(os.path.join(lib_dir, 'python', 'site-packages'))
+    if "PYTHONPATH" in os.environ:
+        python_path = os.environ["PYTHONPATH"] + ":" + python_path
+    os.environ["PYTHONPATH"] = python_path
+
+    run_command([sys.executable, '-m', "pip", 'install', '-r', PIP_REQUIRES_TEST, '--root=./tools/externals/'])
 
 
 def print_help():
@@ -110,7 +115,10 @@ $ source tools/setup_dev.sh
 
 
 def main():
-    configure_git()
+    cwd = os.getcwd()
+    print os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    # configure_git()
     if not HAS_PIP:
         print "Installing pip via wget"
         install_pip()
@@ -118,6 +126,7 @@ def main():
     print "Installing dependencies via pip"
     install_dependencies()
     print_help()
+    os.chdir(cwd)
 
 if __name__ == "__main__":
     main()

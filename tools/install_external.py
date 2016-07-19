@@ -73,7 +73,7 @@ def install_pip():
     tempdir = tempfile.mkdtemp()
     run_command(['wget', '-O', os.path.join(tempdir, 'get-pip.py'), 'https://bootstrap.pypa.io/get-pip.py'])
     run_command([sys.executable, os.path.join(tempdir, "get-pip.py"),
-                 '--prefix=' + os.path.abspath('tools/externals'), "--ignore-installed"])
+                 '--prefix=' + os.path.abspath('tools/externals')])
     shutil.rmtree(tempdir)
 
 

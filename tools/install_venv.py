@@ -12,6 +12,14 @@ import subprocess
 import sys
 import imp
 from distutils.spawn import find_executable
+import tempfile
+import shutil
+# import urllib2
+
+try:
+    from urllib.request import urlopen
+except ImportError:
+    from urllib2 import urlopen
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -23,6 +31,15 @@ PIP_REQUIRES_TEST = os.path.join(ROOT, 'tools', 'pip-requires-test')
 def die(message, *args):
     print >> sys.stderr, message % args
     sys.exit(1)
+
+
+def download(url, to_path):
+    print 'Downloading %s into %s' % (url, to_path)
+    req = urlopen(url)
+    with open(to_path, 'wb') as fp:
+        for line in req:
+            fp.write(line)
+    return to_path
 
 
 def run_command(cmd, redirect_output=True, check_exit_code=True, shell=False):
@@ -51,7 +68,6 @@ def has_module(mod):
 HAS_EASY_INSTALL = bool(find_executable("easy_install"))
 HAS_VIRTUALENV = has_module('virtualenv')
 HAS_PIP = has_module('pip')
-HAS_CURL = bool(find_executable('curl'))
 
 
 def check_dependencies():
@@ -81,19 +97,31 @@ def create_virtualenv(venv=VENV):
     virtual environment
     """
     global HAS_VIRTUALENV
-    if HAS_VIRTUALENV:
-        print 'Creating venv...'
-        run_command([sys.executable, "-m", 'virtualenv', '-q', '--no-site-packages', VENV])
-    elif HAS_CURL:
-        print 'Creating venv via curl...',
-        if not run_command("curl -sL https://raw.github.com/pypa/virtualenv/master/virtualenv.py | %s -"
-                           " --no-site-packages %s" % (sys.executable, VENV), shell=True):
-            die('Failed to install virtualenv with curl.')
-        HAS_VIRTUALENV = True
-    print 'done.'
-    print 'Installing pip into virtualenv...',
-    if not run_command(['sh', 'tools/with_venv.sh', 'easy_install', 'pip>1.0']).strip():
-        die("Failed to install pip.")
+
+    tempdir = tempfile.mkdtemp()
+    try:
+        download("https://bootstrap.pypa.io/ez_setup.py", os.path.join(tempdir, "ez_setup.py"))
+        download("https://bootstrap.pypa.io/get-pip.py", os.path.join(tempdir, "get-pip.py"))
+        if HAS_VIRTUALENV:
+            print 'Creating venv...'
+            run_command([sys.executable, "-m", 'virtualenv', '-q', '--no-site-packages', '--no-setuptools', '--no-pip',
+                         '--no-wheel', VENV])
+        else:
+            download("https://raw.github.com/pypa/virtualenv/master/virtualenv.py",
+                     os.path.join(tempdir, "virtualenv.py"))
+            if not run_command([sys.executable, os.path.join(tempdir, "virtualenv.py"), '--no-site-packages',
+                                '--no-setuptools', '--no-pip', '--no-wheel', VENV]).strip():
+                die('Failed to install virtualenv.')
+            HAS_VIRTUALENV = True
+        print 'done.'
+        print 'Installing setuptools and pip into virtualenv...'
+
+        if not run_command(["sh", "tools/with_venv.sh", "python", (os.path.join(tempdir, "ez_setup.py"))]).strip()\
+                or not run_command(['sh', 'tools/with_venv.sh', 'python', os.path.join(tempdir, "get-pip.py"),
+                                    '--prefix=' + VENV]).strip():
+            die("Failed to install setuptools and pip.")
+    finally:
+        shutil.rmtree(tempdir)
     print 'done.'
 
 
@@ -101,9 +129,11 @@ def install_dependencies(venv=VENV, client=False):
     print 'Installing dependencies with pip (this can take a while)...'
 
     if not client:
-        run_command(['.venv/bin/pip', 'install', '-r', PIP_REQUIRES], redirect_output=False)
+        run_command(['sh', 'tools/with_venv.sh', '.venv/bin/pip', 'install', '-r', PIP_REQUIRES],
+                    redirect_output=False)
 
-    run_command(['.venv/bin/pip', 'install', '-r', PIP_REQUIRES_TEST], redirect_output=False)
+    run_command(['sh', 'tools/with_venv.sh', '.venv/bin/pip', 'install', '-r', PIP_REQUIRES_TEST],
+                redirect_output=False)
 
 
 def _detect_python_version(venv):

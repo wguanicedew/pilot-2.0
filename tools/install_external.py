@@ -112,7 +112,8 @@ def install_dependencies():
     if "PYTHONPATH" in os.environ:
         python_path = python_path + ":" + os.environ["PYTHONPATH"]
     os.environ["PYTHONPATH"] = python_path
-    os.environ["LD_LIBRARY_PATH"] = lib_dir + ":" + os.environ["LD_LIBRARY_PATH"]
+    if "LD_LIBRARY_PATH" in os.environ:
+        os.environ["LD_LIBRARY_PATH"] = lib_dir + ":" + os.environ["LD_LIBRARY_PATH"]
 
     run_command([sys.executable, '-m', "pip", 'install', '-r', PIP_REQUIRES_TEST,
                  '--prefix=' + EXTERNALS], redirect_output=False)
@@ -133,7 +134,7 @@ def main():
     cwd = os.getcwd()
     print os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    configure_git()
+    # configure_git() # it is already configured, I suppose
     if not HAS_PIP:
         install_pip()
 

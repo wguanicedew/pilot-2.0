@@ -16,22 +16,98 @@ import requests
 import sys
 import subprocess
 import time
+import errno
+
 
 requests.packages.urllib3.disable_warnings()
 
 project_url = "https://api.github.com/repos/PanDAWMS/pilot-2.0/pulls"
 split_str = "\n####PILOT##ATUO##TEST####\n"
+pid_file = os.path.abspath(os.path.expanduser('/tmp/pilot_test.pid'))
+states_file = '/tmp/pilotbuildbot.states'
+github_keyfile = '.githubkey'
 
 
-def needs_testing(mr):
+class ProcessRunningException(BaseException):
+    pass
+
+
+class PidFile:
+    def __init__(self, path, log=sys.stdout.write, warn=sys.stderr.write):
+        self.__pid_file = path
+        self.__log = log
+        self.__warn = warn
+
+    def __enter__(self):
+        try:
+            self.__pid_fd = os.open(self.__pid_file, os.O_CREAT | os.O_WRONLY | os.O_EXCL)
+        except OSError as e:
+            if e.errno == errno.EEXIST:
+                pid = self._check()
+                if pid:
+                    self.__pid_fd = None
+                    raise ProcessRunningException('process already running in %s as pid %s' % (self.__pid_file, pid))
+                else:
+                    os.remove(self.__pid_file)
+                    self.__warn('removed staled lockfile %s' % self.__pid_file)
+                    self.__pid_fd = os.open(self.__pid_file, os.O_CREAT | os.O_WRONLY | os.O_EXCL)
+            else:
+                raise
+
+        os.write(self.__pid_fd, str(os.getpid()))
+        os.close(self.__pid_fd)
+        return self
+
+    def __exit__(self, t, e, tb):
+        # return false to raise, true to pass
+        if t is None:
+            # normal condition, no exception
+            self._remove()
+            return True
+        elif t is ProcessRunningException:
+            # do not remove the other process lockfile
+            return False
+        else:
+            # other exception
+            if self.__pid_fd:
+                # this was our lockfile, removing
+                self._remove()
+            return False
+
+    def _remove(self):
+        os.remove(self.__pid_file)
+
+    def _check(self):
+        """
+        check if a process is still running the process id is expected to be in pidfile, which should exist. if it
+        is still running, returns the pid, if not, return False.
+        """
+        with open(self.__pid_file, 'r') as f:
+            try:
+                pidstr = f.read()
+                pid = int(pidstr)
+            except ValueError:
+                # not an integer
+                self.__log("not an integer: %s" % pidstr)
+                return False
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                self.__log("can't deliver signal to %s" % pid)
+                return False
+            else:
+                return pid
+
+
+def needs_testing(merge_request):
     needs_testing = True
 
-    issue_url = mr['issue_url']
+    issue_url = merge_request['issue_url']
     resp = requests.get(url=issue_url)
     issue = json.loads(resp.text)
     labels = [label['name'] for label in issue['labels']]
 
-    pushed_at = mr['head']['repo']['pushed_at']
+    pushed_at = merge_request['head']['repo']['pushed_at']
     updated_at = issue['updated_at']
 
     pushed_at_time = time.mktime(datetime.datetime.strptime(pushed_at, "%Y-%m-%dT%H:%M:%SZ").timetuple())
@@ -54,36 +130,31 @@ def update_pull_request(url, token, data):
         print result.content
 
 
-def update_merg_request(mr, test_result, comment, token):
+def list_substract(_list, substraction):
+    for obj in substraction:
+        try:
+            _list.remove(obj)
+        except ValueError:
+            pass
+
+
+def update_merge_request(merge_request, test_result, found_noqas, comment, token):
     print '  Updating Merge request and putting comment ...'
-    resp = requests.get(url=mr['issue_url'])
+    resp = requests.get(url=merge_request['issue_url'])
     issue = json.loads(resp.text)
     labels = [label['name'] for label in issue['labels']]
-    try:
-        labels.remove('Tests: OK')
-    except:
-        pass
-    try:
-        labels.remove('Tests: FAIL')
-    except:
-        pass
 
-    if test_result:
-        labels.append('Tests: OK')
-    else:
-        labels.append('Tests: FAIL')
+    list_substract(labels, ['Tests: OK', 'Tests: FAIL', 'Tests: NOQA ISSUE'])
 
-    data = {'labels': labels, 'body': '%s%s%s' % (mr['body'].split(split_str)[0], split_str, comment)}
-    update_pull_request(mr['issue_url'], token, data)
+    labels.append('Tests: ' + 'OK' if test_result else 'FAIL')
+    if found_noqas:
+        labels.append('Tests: NOQA ISSUE')
+
+    data = {'labels': labels, 'body': '%s%s%s' % (merge_request['body'].split(split_str)[0], split_str, comment)}
+    update_pull_request(merge_request['issue_url'], token, data)
 
 
-def start_test(mr, token):
-    tests_passed = True
-    error_lines = []
-    print 'Starting testing for MR %s ...' % mr['head']['label']
-    # Add remote to user
-    commands.getstatusoutput('git remote add %s %s' % (mr['head']['label'].split(":")[0], mr['head']['repo']['git_url']))
-
+def prepare_repository_before_testing():
     # Fetch all
     print '  git fetch --all --prune'
     if commands.getstatusoutput('git fetch --all --prune')[0] != 0:
@@ -100,63 +171,88 @@ def start_test(mr, token):
         print 'Error while rebaseing master'
         sys.exit(-1)
 
+
+def update_venv():
+    command = "source .venv/bin/activate;pip install -r tools/pip-requires;pip install -r tools/pip-requires-test;"
+    process = subprocess.Popen(['sh', '-c', command], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    process.communicate()
+
+
+def test_output(command, title="SOME TEST", test=lambda x: len(x) != 0):
+    command = "source .venv/bin/activate;" + command
+    process = subprocess.Popen(['sh', '-c', command], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out = process.communicate()[0]
+
+    if test(out):
+        return ''
+
+    return '##### ' + title + ":\n```\n" + out + "\n```\n"
+
+
+def test_request(merge_request):
+    tests_passed = True
+    error_lines = ''
+
     # Check for Cross Merges
-    if mr['head']['ref'].lower().startswith('patch'):
+    if merge_request['head']['ref'].lower().startswith('patch'):
         print '  Checking for cross-merges:'
-        commits = commands.getoutput('git log master..remotes/%s/%s | grep ^commit' % (mr['head']['label'].split(":")[0], mr['head']['label'].split(":")[1]))
+        commits = commands.getoutput('git log master..remotes/%s/%s | grep ^commit' %
+                                     (merge_request['head']['label'].split(":")[0],
+                                      merge_request['head']['label'].split(":")[1]))
         for commit in commits.splitlines():
             commit = commit.partition(' ')[2]
             if commands.getstatusoutput('git branch --contains %s | grep dev' % commit)[0] == 0:
                 print '    Found cross-merge problem with commit %s' % commit
                 tests_passed = False
-                error_lines.append('##### CROSS-MERGE TESTS:\n')
-                error_lines.append('```\n')
-                error_lines.append('This patch is suspicious. It looks like there are feature-commits pulled into the master branch!\n')
-                error_lines.append('```\n')
+                error_lines += '##### CROSS-MERGE TESTS:\n'
+                error_lines += '```\n'
+                error_lines += 'This patch is suspicious. It looks like there are feature-commits pulled into' \
+                               ' the master branch!\n'
+                error_lines += '```\n'
                 break
 
     # Checkout the branch to test
-    print '  git checkout remotes/%s' % (mr['head']['label'].replace(":", "/"))
-    if commands.getstatusoutput('git checkout remotes/%s' % (mr['head']['label'].replace(":", "/")))[0] != 0:
+    print '  git checkout remotes/%s' % (merge_request['head']['label'].replace(":", "/"))
+    if commands.getstatusoutput('git checkout remotes/%s' % (merge_request['head']['label'].replace(":", "/")))[0] != 0:
         print 'Error while checking out branch'
         sys.exit(-1)
 
-    command = """
-    cd %s; source .venv/bin/activate;
-    pip install -r tools/pip-requires;
-    pip install -r tools/pip-requires-test;
-    find lib -iname "*.pyc" | xargs rm; rm -rf /tmp/.pilot_*/;
-    nosetests -v > /tmp/pilot_nose.txt 2> /tmp/pilot_nose.txt;
-    flake8 *.py > /tmp/pilot_flake8.txt;
-    """ % (root_git_dir)  # NOQA
-    print '  %s' % command
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, shell=True)
-    process.communicate()
+    cwd = os.getcwd()
+    os.chdir(root_git_dir)
+    update_venv()
 
-    with open('/tmp/pilot_nose.txt', 'r') as f:
-        lines = f.readlines()
-        if lines[-1] != 'OK\n':
-            tests_passed = False
-            error_lines.append('##### UNIT TESTS:\n')
-            error_lines.append('```\n')
-            error_lines.extend(lines)
-            error_lines.append('```\n')
+    error_lines += test_output("nosetests -v", title="UNIT TESTS", test=lambda x: x.endswith("OK\n"))
+    error_lines += test_output("flake8 .", title="FLAKE8")
+    error_lines += test_output('git diff HEAD^ HEAD|grep -P "^(?i)\+((.*#\s*NOQA:?\s*|(\s*#\s*flake8:\s*noqa\s*))$"',
+                               title="BROAD NOQA'S")
+    noqas = test_output('git diff HEAD^ HEAD|grep -P "^(?i)\+.*#\s*NOQA:\s*[a-z][0-9]{0,3}(\s*,\s*[a-z][0-9]{0,3})*$"',
+                        title="JUST NOQA'S")
 
-    if os.stat('/tmp/pilot_flake8.txt').st_size != 0:
-        with open('/tmp/pilot_flake8.txt', 'r') as f:
-            lines = f.readlines()
-            tests_passed = False
-            error_lines.append('##### FLAKE8:\n')
-            error_lines.append('```\n')
-            error_lines.extend(lines)
-            error_lines.append('```\n')
+    tests_passed = tests_passed and error_lines == ''
 
-    if tests_passed:
-        error_lines.insert(0, '#### BUILD-BOT TEST RESULT: OK\n\n')
-    else:
-        error_lines.insert(0, '#### BUILD-BOT TEST RESULT: FAIL\n\n')
+    error_lines += noqas
 
-    update_merg_request(mr=mr, test_result=tests_passed, comment=error_lines, token=token)
+    found_noqas = noqas != 0
+
+    error_lines = '#### BUILD-BOT TEST RESULT: ' + 'OK' if tests_passed else 'FAIL' + "\nWARNING: FOUND NOQAS!" \
+        if found_noqas else "" + '\n\n' + error_lines
+
+    os.chdir(cwd)
+
+    return error_lines, tests_passed, found_noqas
+
+
+def update_tests(merge_request, token):
+    print 'Starting testing for MR %s ...' % merge_request['head']['label']
+    # Add remote to user
+    commands.getstatusoutput('git remote add %s %s' % (merge_request['head']['label'].split(":")[0],
+                                                       merge_request['head']['repo']['git_url']))
+
+    prepare_repository_before_testing()
+    error_lines, tests_passed, noqas = test_request(merge_request)
+
+    update_merge_request(merge_request=merge_request, test_result=tests_passed, comment=error_lines, token=token,
+                         found_noqas=noqas)
 
     # Checkout original master
     print '  git checkout master'
@@ -164,50 +260,41 @@ def start_test(mr, token):
         print 'Error while checking out master'
         sys.exit(-1)
 
-print 'Checking if a job is currently running ...'
-if os.path.isfile('/tmp/pilot_test.pid'):
-    # Check if the pid file is older than 90 minutes
-    if os.stat('/tmp/pilot_test.pid').st_mtime < time.time() - 60 * 90:
-        os.remove('/tmp/pilot_test.pid')
-        open('/tmp/pilot_test.pid', 'a').close()
-    else:
+with PidFile(pid_file):
+
+    root_git_dir = commands.getstatusoutput('git rev-parse --show-toplevel')[1]
+    os.chdir(root_git_dir)
+
+    # Load private_token
+    print 'Loading private token ...'
+    try:
+        with open(github_keyfile, 'r') as f:
+            private_token = f.readline().strip()
+    except IOError:
+        print 'No github keyfile found at ' + os.path.join(os.getcwd(), github_keyfile)
         sys.exit(-1)
-else:
-    open('/tmp/pilot_test.pid', 'a').close()
 
-root_git_dir = commands.getstatusoutput('git rev-parse --show-toplevel')[1]
+    # Load state file
+    print 'Loading state file ...'
+    try:
+        with open(states_file) as data_file:
+            states = json.load(data_file)
+    except IOError or ValueError:
+        states = {}
 
-# Load private_token
-print 'Loading private token ...'
-try:
-    with open(root_git_dir + '/.githubkey', 'r') as f:
-        private_token = f.readline().strip()
-except:
-    print 'No github keyfile found at %s' % root_git_dir + '/.githubkey'
-    sys.exit(-1)
+    # Get all open merge requests
+    print 'Getting all open merge requests ...'
+    resp = requests.get(url=project_url, params={'state': 'open'})
+    merge_request_list = json.loads(resp.text)
+    for merge_request in merge_request_list:
+        print 'Checking MR %s -> %s if it needs testing ...' % (merge_request['head']['label'],
+                                                                merge_request['base']['label'])
+        if 'dev' in merge_request['base']['label'] and needs_testing(merge_request):
+            print 'YES'
+            update_tests(merge_request=merge_request, token=private_token)
+        else:
+            print 'NO'
 
-# Load state file
-print 'Loading state file ...'
-try:
-    with open('/tmp/pilotbuildbot.states') as data_file:
-        states = json.load(data_file)
-except:
-    states = {}
-
-# Get all open merge requests
-print 'Getting all open merge requests ...'
-resp = requests.get(url=project_url, params={'state': 'open'})
-mr_list = json.loads(resp.text)
-for mr in mr_list:
-    print 'Checking MR %s -> %s if it needs testing ...' % (mr['head']['label'], mr['base']['label']),
-    if 'dev' in mr['base']['label'] and needs_testing(mr):
-        print 'YES'
-        start_test(mr=mr, token=private_token)
-    else:
-        print 'NO'
-
-print 'Writing state file ...'
-with open('/tmp/pilotbuildbot.states', 'w') as outfile:
-    json.dump(states, outfile)
-
-os.remove('/tmp/pilot_test.pid')
+    print 'Writing state file ...'
+    with open(states_file, 'w') as outfile:
+        json.dump(states, outfile)

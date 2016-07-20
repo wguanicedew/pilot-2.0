@@ -10,6 +10,16 @@ import optparse
 import os
 import subprocess
 import sys
+import imp
+from distutils.spawn import find_executable
+import tempfile
+import shutil
+# import urllib2
+
+try:
+    from urllib.request import urlopen
+except ImportError:
+    from urllib2 import urlopen
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -23,56 +33,41 @@ def die(message, *args):
     sys.exit(1)
 
 
+def download(url, to_path):
+    print 'Downloading %s into %s' % (url, to_path)
+    req = urlopen(url)
+    with open(to_path, 'wb') as fp:
+        for line in req:
+            fp.write(line)
+    return to_path
+
+
 def run_command(cmd, redirect_output=True, check_exit_code=True, shell=False):
     """
     Runs a command in an out-of-process shell, returning the
     output of that command.  Working directory is ROOT.
     """
-    if redirect_output:
-        stdout = subprocess.PIPE
-    else:
-        stdout = None
-
-    proc = subprocess.Popen(cmd, cwd=ROOT, stdout=stdout, shell=shell)
+    if shell:
+        cmd = ['sh', '-c', cmd]
+    proc = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE if redirect_output else None)
     output = proc.communicate()[0]
     if check_exit_code and proc.returncode != 0:
+        # print("ec = %d " % proc.returncode)
         die('Command "%s" failed.\n%s', ' '.join(cmd), output)
     return output
 
 
-HAS_EASY_INSTALL = bool(run_command(['which', 'easy_install'], check_exit_code=False).strip())
-HAS_VIRTUALENV = bool(run_command(['which', 'virtualenv'], check_exit_code=False).strip())
-HAS_PIP = bool(run_command(['which', 'pip'], check_exit_code=False).strip())
-HAS_CURL = bool(run_command(['which', 'curl'], check_exit_code=False).strip())
+def has_module(mod):
+    try:
+        imp.find_module(mod)
+        return True
+    except ImportError:
+        return False
 
 
-def check_dependencies():
-    """Make sure virtualenv is in the path."""
-
-    if not HAS_VIRTUALENV:
-        print 'virtualenv not found.'
-        # Try installing it via curl/pip/easy_install...
-        if HAS_PIP:
-            print 'Installing virtualenv via pip...',
-            if not run_command(['which', 'pip']):
-                die('ERROR: virtualenv not found.\n\n'
-                    'Pilot development requires virtualenv, please install'
-                    ' it using your favorite package management tool')
-            else:
-                if not run_command(['pip', 'install', 'virtualenv']).strip():
-                    die("Failed to install virtualenv.")
-            print 'done.'
-        elif HAS_EASY_INSTALL:
-            print 'Installing virtualenv via easy_install...',
-            if not run_command(['which', 'easy_install']):
-                die('ERROR: virtualenv not found.\n\n'
-                    'Pilot development requires virtualenv, please install'
-                    ' it using your favorite package management tool')
-            else:
-                if not run_command(['easy_install', 'virtualenv']).strip():
-                    die("Failed to install virtualenv.")
-            print 'done.'
-    print 'done.'
+HAS_EASY_INSTALL = bool(find_executable("easy_install"))
+HAS_VIRTUALENV = has_module('virtualenv')
+HAS_PIP = has_module('pip')
 
 
 def create_virtualenv(venv=VENV):
@@ -80,17 +75,32 @@ def create_virtualenv(venv=VENV):
     Creates the virtual environment and installs PIP only into the
     virtual environment
     """
-    if HAS_VIRTUALENV:
-        print 'Creating venv...'
-        run_command(['virtualenv', '-q', '--no-site-packages', VENV])
-    elif HAS_CURL:
-        print 'Creating venv via curl...',
-        if not run_command("curl -s https://raw.github.com/pypa/virtualenv/master/virtualenv.py | %s - --no-site-packages %s" % (sys.executable, VENV), shell=True):
-            die('Failed to install virtualenv with curl.')
-    print 'done.'
-    print 'Installing pip in virtualenv...',
-    if not run_command(['tools/with_venv.sh', 'easy_install', 'pip>1.0']).strip():
-        die("Failed to install pip.")
+    global HAS_VIRTUALENV
+
+    tempdir = tempfile.mkdtemp()
+    try:
+        download("https://bootstrap.pypa.io/ez_setup.py", os.path.join(tempdir, "ez_setup.py"))
+        download("https://bootstrap.pypa.io/get-pip.py", os.path.join(tempdir, "get-pip.py"))
+        if HAS_VIRTUALENV:
+            print 'Creating venv...'
+            run_command([sys.executable, "-m", 'virtualenv', '-q', '--no-site-packages', '--no-setuptools', '--no-pip',
+                         '--no-wheel', VENV])
+        else:
+            download("https://raw.github.com/pypa/virtualenv/master/virtualenv.py",
+                     os.path.join(tempdir, "virtualenv.py"))
+            if not run_command([sys.executable, os.path.join(tempdir, "virtualenv.py"), '--no-site-packages',
+                                '--no-setuptools', '--no-pip', '--no-wheel', VENV]).strip():
+                die('Failed to install virtualenv.')
+            HAS_VIRTUALENV = True
+        print 'done.'
+        print 'Installing setuptools and pip into virtualenv...'
+
+        if not run_command(["sh", "tools/with_venv.sh", "python", (os.path.join(tempdir, "ez_setup.py"))]).strip()\
+                or not run_command(['sh', 'tools/with_venv.sh', 'python', os.path.join(tempdir, "get-pip.py"),
+                                    '--prefix=' + VENV]).strip():
+            die("Failed to install setuptools and pip.")
+    finally:
+        shutil.rmtree(tempdir)
     print 'done.'
 
 
@@ -98,9 +108,11 @@ def install_dependencies(venv=VENV, client=False):
     print 'Installing dependencies with pip (this can take a while)...'
 
     if not client:
-        run_command(['.venv/bin/pip', 'install', '-r', PIP_REQUIRES], redirect_output=False)
+        run_command(['sh', 'tools/with_venv.sh', 'python', '-m', 'pip', 'install', '-r', PIP_REQUIRES],
+                    redirect_output=False)
 
-    run_command(['.venv/bin/pip', 'install', '-r', PIP_REQUIRES_TEST], redirect_output=False)
+    run_command(['sh', 'tools/with_venv.sh', 'python', '-m', 'pip', 'install', '-r', PIP_REQUIRES_TEST],
+                redirect_output=False)
 
 
 def _detect_python_version(venv):
@@ -137,7 +149,6 @@ if __name__ == '__main__':
 
     parser = optparse.OptionParser()
     (options, args) = parser.parse_args()
-    # check_dependencies()
     create_virtualenv()
     install_dependencies()
     print_help()

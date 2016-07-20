@@ -24,29 +24,45 @@ def system(*args, **kwargs):
     out, err = proc.communicate()
     return out
 
+restricted_branches = ['master', 'dev', 'hotfix']
+
 
 def main():
-    currentbranch = system('git', 'rev-parse', '--abbrev-ref=strict', 'HEAD').rstrip('\n')
-    if currentbranch=='master' or currentbranch=='dev':
+    current_branch = system('git', 'rev-parse', '--abbrev-ref=strict', 'HEAD').rstrip('\n')
+    if current_branch in restricted_branches:
         print "You are trying to commit on your master/dev, that's probably a mistake. Exiting..."
         sys.exit(1)
     modified = re.compile('^[AM]+\s+(?P<name>.*\.py)', re.MULTILINE)
     files = system('git', 'status', '--porcelain')
     files = modified.findall(files)
+    files.append("setup.cfg")  # holds flake configs
     tempdir = tempfile.mkdtemp()
-    for name in files:
-        filename = os.path.join(tempdir, name)
-        filepath = os.path.dirname(filename)
-        if not os.path.exists(filepath):
-            os.makedirs(filepath)
-        with file(filename, 'w') as f:
-            system('git', 'show', ':' + name, stdout=f)
+    try:
+        for name in files:
+            filename = os.path.join(tempdir, name)
+            filepath = os.path.dirname(filename)
+            if not os.path.exists(filepath):
+                os.makedirs(filepath)
+            with file(filename, 'w') as f:
+                system('git', 'show', ':' + name, stdout=f)
 
-    output = system('flake8', '.', cwd=tempdir)
-    shutil.rmtree(tempdir)
+        output = system(sys.executable, '-m', 'flake8', '.', cwd=tempdir)
+    finally:
+        shutil.rmtree(tempdir)
+
     if output:
         print output,
         sys.exit(1)
+
+    noqa = re.compile('^(?i)\+((.*#\s*(NOQA):?\s*(.*))|(\s*#\s*(flake8):\s*noqa\s*))$')
+    matches = filter(lambda x: len(x) > 0, map(lambda x: noqa.findall(x), system('git', 'diff').split("\n")))
+    for match in matches:
+        if len(match[0][3]) == 0:
+            print "found unspecified NOQA in the project, this is restricted."
+            sys.exit(1)
+        else:
+            print "found NOQA: " + match[0][3] + ", the merge will need a revision."
+
 
 if __name__ == '__main__':
     main()

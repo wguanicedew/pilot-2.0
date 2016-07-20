@@ -108,10 +108,10 @@ def install_dependencies(venv=VENV, client=False):
     print 'Installing dependencies with pip (this can take a while)...'
 
     if not client:
-        run_command(['sh', 'tools/with_venv.sh', '.venv/bin/pip', 'install', '-r', PIP_REQUIRES],
+        run_command(['sh', 'tools/with_venv.sh', 'python', '-m', 'pip', 'install', '-r', PIP_REQUIRES],
                     redirect_output=False)
 
-    run_command(['sh', 'tools/with_venv.sh', '.venv/bin/pip', 'install', '-r', PIP_REQUIRES_TEST],
+    run_command(['sh', 'tools/with_venv.sh', 'python', '-m', 'pip', 'install', '-r', PIP_REQUIRES_TEST],
                 redirect_output=False)
 
 

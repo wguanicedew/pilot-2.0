@@ -146,7 +146,7 @@ def update_merge_request(merge_request, test_result, found_noqas, comment, token
 
     list_substract(labels, ['Tests: OK', 'Tests: FAIL', 'Tests: NOQA ISSUE'])
 
-    labels.append('Tests: ' + 'OK' if test_result else 'FAIL')
+    labels.append('Tests: OK' if test_result else 'Tests: FAIL')
     if found_noqas:
         labels.append('Tests: NOQA ISSUE')
 

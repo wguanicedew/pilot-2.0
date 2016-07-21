@@ -145,18 +145,6 @@ very simple callback API to make the things easier.
 The `__init__` of each interface is to accept one parameter (except `self`), the previous instance. If it is not None,
 then we can get all the features from it into our new instance.
 
-For example:
-```python
-from .abstract import ExampleComponent as Base
-
-class ExampleComponent(Base):
-    def __init__(self, previous):
-        if previous:
-            self.get_all_the_stuff_from(previous)
-        else:
-            self.make_new_stuff()
-```
-
 ### Preparing the instance to be changed
 The other API option is to prepare all necessary things to be moved into the new instance. When the instance is about to
 be switched, a method `__switch__` is called, no parameters required (except `self`). Thus it may prepare all the data
@@ -167,3 +155,19 @@ be unlocked to lock it into the new one. Or it may appear, that during that time
 it in mind.
 
 The API interface is located in `components.component.Component` class. See the source.
+
+### Example:
+```python
+from .abstract import ExampleComponent as Base
+
+class ExampleComponent(Base):
+    def __init__(self, previous):
+        if previous:
+            self.get_all_the_stuff_from(previous)
+        else:
+            self.make_new_stuff()
+    
+    def __switch__(self):
+        self.prepare_stuff()
+        self.cleanup()
+```

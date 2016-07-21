@@ -11,11 +11,11 @@ class Pilot(ComponentManager):
 if __name__ == '__main__':
     pilot = Pilot()
 
-    T = pilot.load_component('template_component')
-    t = T()
+    pilot.load_component('example_component')
+    pilot.get_component('example_component').foo()
 
-    T = pilot.load_component('template_component', 'extended')
-    t = T()
+    T = pilot.load_component('example_component', 'extended')
+    pilot.example_component.foo()
 
-    T = pilot.load_component('template_component', 'undefined')
-    t = T()
+    T = pilot.load_component('example_component', 'undefined')
+    pilot.get_component('example_component').foo()

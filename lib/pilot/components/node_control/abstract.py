@@ -2,10 +2,10 @@ from ..component import Component as Base
 
 
 class NodeControl(Base):
-    def __init__(self):
+    def __init__(self, previous):
         Base.__init__(self)
 
-    def setup_accounting(self):
+    def setup_accounting(self, previous):
         pass
 
     def prepare_payload(self):

@@ -2,8 +2,8 @@ from ..component import Component as Base
 
 
 class SandboxSetup(Base):
-    def __init__(self):
-        Base.__init__(self)
+    def __init__(self, previous):
+        Base.__init__(self, previous)
 
     def establish_local_security(self):
         pass

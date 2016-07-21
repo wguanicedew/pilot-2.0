@@ -2,8 +2,8 @@ from ..component import Component as Base
 
 
 class PilotSetup(Base):
-    def __init__(self):
-        Base.__init__(self)
+    def __init__(self, previous):
+        Base.__init__(self, previous)
 
     def establish_signal_handling(self):
         pass

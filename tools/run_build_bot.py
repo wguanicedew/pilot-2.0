@@ -223,10 +223,10 @@ def test_request(merge_request):
 
     error_lines += test_output("nosetests -v", title="UNIT TESTS", test=lambda x: x.endswith("OK\n"))
     error_lines += test_output("flake8 .", title="FLAKE8")
-    error_lines += test_output('git diff HEAD^ HEAD|grep -P "^(?i)\+((.*#\s*NOQA:?\s*|(\s*#\s*flake8:\s*noqa\s*))$"',
-                               title="BROAD NOQA'S")
-    noqas = test_output('git diff HEAD^ HEAD|grep -P "^(?i)\+.*#\s*NOQA:\s*[a-z][0-9]{0,3}(\s*,\s*[a-z][0-9]{0,3})*$"',
-                        title="JUST NOQA'S")
+    noqas = test_output('git diff HEAD^ HEAD|grep -P "^(?i)\+((.*#\s*NOQA:?\s*|(\s*#\s*flake8:\s*noqa\s*))$"',
+                        title="BROAD NOQA'S")
+    noqas += test_output('git diff HEAD^ HEAD|grep -P "^(?i)\+.*#\s*NOQA:\s*[a-z][0-9]{0,3}(\s*,\s*[a-z][0-9]{0,3})*$"',
+                         title="JUST NOQA'S")
 
     tests_passed = tests_passed and error_lines == ''
 

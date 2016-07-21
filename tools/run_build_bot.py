@@ -17,7 +17,7 @@ import sys
 import subprocess
 import time
 import errno
-
+import re
 
 requests.packages.urllib3.disable_warnings()
 
@@ -26,6 +26,8 @@ split_str = "\n####PILOT##ATUO##TEST####\n"
 pid_file = os.path.abspath(os.path.expanduser('/tmp/pilot_test.pid'))
 states_file = '/tmp/pilotbuildbot.states'
 github_keyfile = '.githubkey'
+
+noqa_regexp = re.compile('^(?i)\+((.*#\s*(NOQA):?\s*(.*))|(\s*#\s*(flake8):\s*noqa\s*))$')
 
 
 class ProcessRunningException(BaseException):
@@ -189,6 +191,11 @@ def test_output(command, title="SOME TEST", test=lambda x: len(x) != 0):
     return '##### ' + title + ":\n```\n" + out + "\n```\n"
 
 
+def get_diff(merge_request):
+    resp = requests.get(merge_request['diff_url'])
+    return resp.text
+
+
 def test_request(merge_request):
     tests_passed = True
     error_lines = ''
@@ -223,10 +230,15 @@ def test_request(merge_request):
 
     error_lines += test_output("nosetests -v", title="UNIT TESTS", test=lambda x: x.endswith("OK\n"))
     error_lines += test_output("flake8 .", title="FLAKE8")
-    noqas = test_output('git diff HEAD^ HEAD|grep -P "^(?i)\+((.*#\s*NOQA:?\s*|(\s*#\s*flake8:\s*noqa\s*))$"',
-                        title="BROAD NOQA'S")
-    noqas += test_output('git diff HEAD^ HEAD|grep -P "^(?i)\+.*#\s*NOQA:\s*[a-z][0-9]{0,3}(\s*,\s*[a-z][0-9]{0,3})*$"',
-                         title="JUST NOQA'S")
+
+    diff = get_diff(merge_request)
+
+    noqas = ''
+    matches = filter(lambda x: len(x) > 0, map(lambda x: noqa_regexp.findall(x), diff.split("\n")))
+    for match in matches:
+        noqas += match[0][0]
+        if len(match[0][3]) == 0:
+            tests_passed = False
 
     tests_passed = tests_passed and error_lines == ''
 

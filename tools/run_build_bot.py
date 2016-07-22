@@ -262,8 +262,6 @@ def test_request(merge_request):
     else:
         error_lines += "FLAKE8 TESTS: OK \n"
 
-    diff = get_diff(merge_request)
-
     noqas = ''
     try:
         diff = get_diff(merge_request)

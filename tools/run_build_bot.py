@@ -18,6 +18,7 @@ import subprocess
 import time
 import errno
 import re
+import traceback
 
 try:
     import pydevd
@@ -224,6 +225,8 @@ def test_request(merge_request):
                                ' the master branch!\n'
                 error_lines += '```\n'
                 break
+        if tests_passed:
+            error_lines += "##### CROSS-MERGE TESTS:OK\n"
 
     # Checkout the branch to test
     print '  git checkout remotes/%s' % (merge_request['head']['label'].replace(":", "/"))
@@ -235,30 +238,45 @@ def test_request(merge_request):
     os.chdir(root_git_dir)
     update_venv()
 
-    error_lines += test_output("nosetests -v", title="UNIT TESTS", test=lambda x: x.endswith("OK\n"))
-    error_lines += test_output("flake8 .", title="FLAKE8")
+    nose_errors = test_output("nosetests -v", title="UNIT TESTS", test=lambda x: x.endswith("OK\n"))
+    if len(nose_errors):
+        error_lines += nose_errors
+        tests_passed = False
+    else:
+        error_lines += "NOSE UNIT TESTS: OK \n"
+
+    flake_errors = test_output("flake8 .", title="FLAKE8")
+    if len(flake_errors):
+        error_lines += flake_errors
+        tests_passed = False
+    else:
+        error_lines += "FLAKE8 TESTS: OK \n"
 
     diff = get_diff(merge_request)
 
     noqas = ''
-    matches = filter(lambda x: len(x) > 0, map(lambda x: noqa_regexp.findall(x), diff.split("\n")))
-    for match in matches:
-        noqas += match[0][0]
-        if len(match[0][3]) == 0:
-            tests_passed = False
+    try:
+        diff = get_diff(merge_request)
 
-    tests_passed = tests_passed and error_lines == ''
-
-    error_lines += noqas
+        matches = filter(lambda x: len(x) > 0, map(lambda x: noqa_regexp.findall(x), diff.split("\n")))
+        for match in matches:
+            noqas += match[0][0]
+            if len(match[0][3]) == 0:
+                tests_passed = False
+    except:
+        tests_passed = False
+        noqas += "NOQA TEST Exception: %s" % traceback.format_exc()
 
     found_noqas = noqas != ''
 
-    error_lines = '#### BUILD-BOT TEST RESULT: ' + 'OK' if tests_passed else 'FAIL' + '\nWARNING: FOUND NOQAS!' \
-        if found_noqas else '' + '\n\n' + error_lines if len(error_lines) else ''
+    error_result = '#### BUILD-BOT TEST RESULT: '
+    error_result += 'OK' if tests_passed else 'FAIL'
+    error_result += '\nWARNING: FOUND NOQAS:\n%s' % noqas if found_noqas else ''
+    error_result += '\n\n' + error_lines if len(error_lines) else ''
 
     os.chdir(cwd)
 
-    return error_lines, tests_passed, found_noqas
+    return error_result, tests_passed, found_noqas
 
 
 def update_tests(merge_request, token):

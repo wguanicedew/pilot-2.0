@@ -1,8 +1,9 @@
 from component import Component
+from interface import Interface
 from importlib import import_module
 from errors import ComponentManagerReservedError, ComponentManagerSetError, ComponentManagerNotAComponentError
 
-__reserved_names__ = ['component', 'errors']
+__reserved_names__ = ['component', 'errors', 'interface']
 
 
 class ComponentManager(object):
@@ -41,6 +42,7 @@ class ComponentManager(object):
         base['loaded'] = base['stub']
         base['name'] = 'stub'
         base['instance'] = base['loaded'](None)
+        base['interface'] = Interface(self, name)
 
         self.component_types[name] = base
 
@@ -74,9 +76,13 @@ class ComponentManager(object):
             except ImportError:
                 return self.__load_component(component_type, 'stub')
 
-    def get_component(self, component_type):
+    def _get_component_real(self, component_type):
         ct = self.find_component_type(component_type)
         return ct['instance']
+
+    def get_component(self, component_type):
+        ct = self.find_component_type(component_type)
+        return ct['interface']
 
     def __getattr__(self, item):
         try:

@@ -37,5 +37,14 @@ III. Developing:
  b) Submit merge pull request:
    $ tools/submit-merge
 
-IV. Auto test
-
+IV. Local test
+ a) Pattern Validation
+   flake8
+ b) Run all test instance
+   nosetest -v 
+ c) Run only one test file 
+   nosetest -v lib/pilot/test/mock_test.py
+ d) Run only one test class
+   nosetests -v lib/pilot/test/mock_test.py:TestMock
+ e) Run only one test function
+   nosetests -v lib/pilot/test/mock_test.py:TestMock.test_mock

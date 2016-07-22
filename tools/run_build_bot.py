@@ -193,10 +193,12 @@ def test_output(command, title="SOME TEST", test=lambda x: len(x) == 0):
     process = subprocess.Popen(['sh', '-c', command], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out = process.communicate()[0]
 
-    if test(out):
-        return ''
+    test_header = '##### ' + title + ": "
 
-    return '##### ' + title + ":\n```\n" + out + "\n```\n"
+    if test(out):
+        return True, test_header + "OK\n"
+
+    return False, test_header + "\n```\n" + out + "\n```\n"
 
 
 def get_diff(merge_request):
@@ -231,9 +233,6 @@ def test_cross_merge(merge_request):
 
 
 def test_request(merge_request):
-    tests_passed = True
-    error_lines = ''
-
     tests_passed, error_lines = test_cross_merge(merge_request)
 
     # Checkout the branch to test
@@ -246,23 +245,15 @@ def test_request(merge_request):
     os.chdir(root_git_dir)
     update_venv()
 
-    nose_errors = test_output("nosetests -v --exclude=.venv --exclude=tools",
-                              title="UNIT TESTS",
-                              test=lambda x: x.endswith("OK\n"))
-    if len(nose_errors):
-        error_lines += nose_errors
-        tests_passed = False
-    else:
-        error_lines += "NOSE UNIT TESTS: OK \n"
+    test_passed, message = test_output("nosetests -v --exclude=.venv --exclude=tools",
+                                       title="UNIT TESTS",
+                                       test=lambda x: x.endswith("OK\n"))
+    tests_passed = tests_passed and test_passed
+    error_lines += message
 
-    flake_errors = test_output("flake8 .", title="FLAKE8")
-    if len(flake_errors):
-        error_lines += flake_errors
-        tests_passed = False
-    else:
-        error_lines += "FLAKE8 TESTS: OK \n"
-
-    diff = get_diff(merge_request)
+    test_passed, message = test_output("flake8 .", title="FLAKE8")
+    tests_passed = tests_passed and test_passed
+    error_lines += message
 
     noqas = ''
     try:

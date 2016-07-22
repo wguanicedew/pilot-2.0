@@ -253,10 +253,8 @@ def test_request(merge_request):
 
     found_noqas = noqas != 0
 
-    error_lines = '#### BUILD-BOT TEST RESULT: '
-    error_lines += 'OK' if tests_passed else 'FAIL'
-    error_lines += '\nWARNING: FOUND NOQAS!' if found_noqas else ''
-    error_lines += '\n\n' + error_lines if len(error_lines) else ''
+    error_lines = '#### BUILD-BOT TEST RESULT: ' + 'OK' if tests_passed else 'FAIL' + '\nWARNING: FOUND NOQAS!' \
+        if found_noqas else '' + '\n\n' + error_lines if len(error_lines) else ''
 
     os.chdir(cwd)
 

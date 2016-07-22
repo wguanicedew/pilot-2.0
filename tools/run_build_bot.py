@@ -19,6 +19,13 @@ import time
 import errno
 import re
 
+try:
+    import pydevd
+    pydevd.settrace('Complynx-HP.cern.ch', port=6580, stdoutToServer=True, stderrToServer=True)
+except ImportError:
+    pass
+
+
 requests.packages.urllib3.disable_warnings()
 
 project_url = "https://api.github.com/repos/PanDAWMS/pilot-2.0/pulls"
@@ -180,7 +187,7 @@ def update_venv():
     process.communicate()
 
 
-def test_output(command, title="SOME TEST", test=lambda x: len(x) != 0):
+def test_output(command, title="SOME TEST", test=lambda x: len(x) == 0):
     command = "source .venv/bin/activate;" + command
     process = subprocess.Popen(['sh', '-c', command], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out = process.communicate()[0]
@@ -192,7 +199,7 @@ def test_output(command, title="SOME TEST", test=lambda x: len(x) != 0):
 
 
 def get_diff(merge_request):
-    resp = requests.get(merge_request['diff_url'])
+    resp = requests.get(merge_request['diff_url'], verify=False)
     return resp.text
 
 
@@ -244,12 +251,10 @@ def test_request(merge_request):
 
     error_lines += noqas
 
-    found_noqas = noqas != 0
+    found_noqas = noqas != ''
 
-    error_lines = '#### BUILD-BOT TEST RESULT: '
-    error_lines += 'OK' if tests_passed else 'FAIL'
-    error_lines += '\nWARNING: FOUND NOQAS!' if found_noqas else ''
-    error_lines += '\n\n' + error_lines if len(error_lines) else ''
+    error_lines = '#### BUILD-BOT TEST RESULT: ' + 'OK' if tests_passed else 'FAIL' + '\nWARNING: FOUND NOQAS!' \
+        if found_noqas else '' + '\n\n' + error_lines if len(error_lines) else ''
 
     os.chdir(cwd)
 

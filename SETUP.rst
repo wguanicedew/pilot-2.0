@@ -37,7 +37,7 @@ III. Developing:
  b) Submit merge pull request:
    $ tools/submit-merge
 
-IV. Local test
+IV. Local Test
  a) Pattern Validation
    flake8
  b) Run all test instance

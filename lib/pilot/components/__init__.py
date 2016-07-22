@@ -66,15 +66,17 @@ class ComponentManager(object):
         return ct
 
     def load_component(self, component_type, name='default'):
-        self.find_component_type(component_type)
+        ct = self.find_component_type(component_type)
 
         try:
-            return self.__load_component(component_type, name)
+            ct = self.__load_component(component_type, name)
         except ImportError:
             try:
-                return self.__load_component(component_type, 'default')
+                ct = self.__load_component(component_type, 'default')
             except ImportError:
-                return self.__load_component(component_type, 'stub')
+                ct = self.__load_component(component_type, 'stub')
+
+        return ct['interface']
 
     def _get_component_real(self, component_type):
         ct = self.find_component_type(component_type)

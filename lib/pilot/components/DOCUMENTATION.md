@@ -31,16 +31,23 @@ from components import ComponentManager
 
 comp_man = ComponentManager()
 
-comp_man.load_component('example_component')
-comp_man.example_component.foo()  # the 'default' component is used
+my_comp = comp_man.load_component('example_component')
+my_comp.foo()  # the 'default' component is used
 ...
 ```
 
-By default the 'default' version of component is loaded, if present. To load specific version, add the second argument:
+There are three ways to access components:
+```python
+my_comp = comp_man.load_component('example_component', 'some_type')
+my_comp = comp_man.get_component('example_component')  # previously loaded one
+my_comp = comp_man.example_component  # previously loaded one
+```
+
+By default the 'default' version of component is loaded, if present. To load a specific version, add the second argument:
 ```python
 ...
 comp_man.load_component('example_component', 'extended')
-comp_man.example_component.foo()  # the 'extended' component is used
+my_comp.foo()  # the 'extended' component is used
 ...
 ```
 
@@ -51,10 +58,10 @@ To switch the component anywhere in your code, just call `load_component` with t
 switched:
 ```python
 ...
-comp_man.example_component.foo()  # previously component is used
+my_comp.foo()  # previously loaded component is used
 
 comp_man.load_component('example_component', 'new')
-comp_man.example_component.foo()  # the 'new' component is now used
+my_comp.foo()  # the 'new' component is now used
 ...
 ```
 
@@ -74,7 +81,7 @@ my_prop is my_comp.some_object  # False
 ...
 comp_man.load_component('example_component', 'some')
 my_prop  # is from old instance of 'example_component.some'
-my_prop is my_comp.some_object  # False
+my_prop is my_comp.some_object  # still False
 ```
 
 

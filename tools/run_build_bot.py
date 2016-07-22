@@ -187,7 +187,7 @@ def update_venv():
     process.communicate()
 
 
-def test_output(command, title="SOME TEST", test=lambda x: len(x) != 0):
+def test_output(command, title="SOME TEST", test=lambda x: len(x) == 0):
     command = "source .venv/bin/activate;" + command
     process = subprocess.Popen(['sh', '-c', command], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out = process.communicate()[0]
@@ -199,7 +199,7 @@ def test_output(command, title="SOME TEST", test=lambda x: len(x) != 0):
 
 
 def get_diff(merge_request):
-    resp = requests.get(merge_request['diff_url'])
+    resp = requests.get(merge_request['diff_url'], verify=False)
     return resp.text
 
 

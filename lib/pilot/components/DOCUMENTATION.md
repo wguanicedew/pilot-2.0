@@ -58,19 +58,23 @@ comp_man.example_component.foo()  # the 'new' component is now used
 ...
 ```
 
-**NOTE!** If you referenced the component in your code, reloading will not change your reference, and that will be
-obsolete. Also, next reloading of the same type will make a new instance.
+**NOTE!** Though referencing components themselves is transparent,
+referencing object-properties of components might be tricky:
 ```python
 ...
 comp_man.load_component('example_component', 'some')
-C = comp_man.example_component
+my_comp = comp_man.example_component
+my_prop = my_comp.some_object
+my_prop is my_comp.some_object  # True
 
 comp_man.load_component('example_component', 'new')
-# Now `C` is obsolete and probably not working.
+my_comp  # is now 'new'
+my_prop  # is an object from 'example_component.some'
+my_prop is my_comp.some_object  # False
 ...
 comp_man.load_component('example_component', 'some')
-assert( comp_man.example_component != C )  # now they are different!
-...
+my_prop  # is from old instance of 'example_component.some'
+my_prop is my_comp.some_object  # False
 ```
 
 

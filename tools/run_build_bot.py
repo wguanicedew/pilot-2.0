@@ -204,7 +204,7 @@ def get_diff(merge_request):
     return resp.text
 
 
-def test_request(merge_request):
+def test_cross_merge(merge_request):
     tests_passed = True
     error_lines = ''
 
@@ -227,6 +227,14 @@ def test_request(merge_request):
                 break
         if tests_passed:
             error_lines += "##### CROSS-MERGE TESTS:OK\n"
+    return tests_passed, error_lines
+
+
+def test_request(merge_request):
+    tests_passed = True
+    error_lines = ''
+
+    tests_passed, error_lines = test_cross_merge(merge_request)
 
     # Checkout the branch to test
     print '  git checkout remotes/%s' % (merge_request['head']['label'].replace(":", "/"))
@@ -238,7 +246,9 @@ def test_request(merge_request):
     os.chdir(root_git_dir)
     update_venv()
 
-    nose_errors = test_output("nosetests -v", title="UNIT TESTS", test=lambda x: x.endswith("OK\n"))
+    nose_errors = test_output("nosetests -v --exclude=.venv --exclude=tools",
+                              title="UNIT TESTS",
+                              test=lambda x: x.endswith("OK\n"))
     if len(nose_errors):
         error_lines += nose_errors
         tests_passed = False
@@ -263,7 +273,7 @@ def test_request(merge_request):
             noqas += match[0][0]
             if len(match[0][3]) == 0:
                 tests_passed = False
-    except:
+    except Exception:
         tests_passed = False
         noqas += "NOQA TEST Exception: %s" % traceback.format_exc()
 

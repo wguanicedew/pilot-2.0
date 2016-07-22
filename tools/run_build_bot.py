@@ -17,6 +17,14 @@ import sys
 import subprocess
 import time
 import errno
+import re
+import traceback
+
+try:
+    import pydevd
+    pydevd.settrace('Complynx-HP.cern.ch', port=6580, stdoutToServer=True, stderrToServer=True)
+except ImportError:
+    pass
 
 
 requests.packages.urllib3.disable_warnings()
@@ -26,6 +34,8 @@ split_str = "\n####PILOT##ATUO##TEST####\n"
 pid_file = os.path.abspath(os.path.expanduser('/tmp/pilot_test.pid'))
 states_file = '/tmp/pilotbuildbot.states'
 github_keyfile = '.githubkey'
+
+noqa_regexp = re.compile('^(?i)\+((.*#\s*(NOQA):?\s*(.*))|(\s*#\s*(flake8):\s*noqa\s*))$')
 
 
 class ProcessRunningException(BaseException):
@@ -178,18 +188,25 @@ def update_venv():
     process.communicate()
 
 
-def test_output(command, title="SOME TEST", test=lambda x: len(x) != 0):
+def test_output(command, title="SOME TEST", test=lambda x: len(x) == 0):
     command = "source .venv/bin/activate;" + command
     process = subprocess.Popen(['sh', '-c', command], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out = process.communicate()[0]
 
+    test_header = '##### ' + title + ": "
+
     if test(out):
-        return ''
+        return True, test_header + "OK\n"
 
-    return '##### ' + title + ":\n```\n" + out + "\n```\n"
+    return False, test_header + "\n```\n" + out + "\n```\n"
 
 
-def test_request(merge_request):
+def get_diff(merge_request):
+    resp = requests.get(merge_request['diff_url'], verify=False)
+    return resp.text
+
+
+def test_cross_merge(merge_request):
     tests_passed = True
     error_lines = ''
 
@@ -210,6 +227,13 @@ def test_request(merge_request):
                                ' the master branch!\n'
                 error_lines += '```\n'
                 break
+        if tests_passed:
+            error_lines += "##### CROSS-MERGE TESTS:OK\n"
+    return tests_passed, error_lines
+
+
+def test_request(merge_request):
+    tests_passed, error_lines = test_cross_merge(merge_request)
 
     # Checkout the branch to test
     print '  git checkout remotes/%s' % (merge_request['head']['label'].replace(":", "/"))
@@ -221,25 +245,39 @@ def test_request(merge_request):
     os.chdir(root_git_dir)
     update_venv()
 
-    error_lines += test_output("nosetests -v", title="UNIT TESTS", test=lambda x: x.endswith("OK\n"))
-    error_lines += test_output("flake8 .", title="FLAKE8")
-    error_lines += test_output('git diff HEAD^ HEAD|grep -P "^(?i)\+((.*#\s*NOQA:?\s*|(\s*#\s*flake8:\s*noqa\s*))$"',
-                               title="BROAD NOQA'S")
-    noqas = test_output('git diff HEAD^ HEAD|grep -P "^(?i)\+.*#\s*NOQA:\s*[a-z][0-9]{0,3}(\s*,\s*[a-z][0-9]{0,3})*$"',
-                        title="JUST NOQA'S")
+    test_passed, message = test_output("nosetests -v --exclude=.venv --exclude=tools",
+                                       title="UNIT TESTS",
+                                       test=lambda x: x.endswith("OK\n"))
+    tests_passed = tests_passed and test_passed
+    error_lines += message
 
-    tests_passed = tests_passed and error_lines == ''
+    test_passed, message = test_output("flake8 .", title="FLAKE8")
+    tests_passed = tests_passed and test_passed
+    error_lines += message
 
-    error_lines += noqas
+    noqas = ''
+    try:
+        diff = get_diff(merge_request)
 
-    found_noqas = noqas != 0
+        matches = filter(lambda x: len(x) > 0, map(lambda x: noqa_regexp.findall(x), diff.split("\n")))
+        for match in matches:
+            noqas += match[0][0]
+            if len(match[0][3]) == 0:
+                tests_passed = False
+    except Exception:
+        tests_passed = False
+        noqas += "NOQA TEST Exception: %s" % traceback.format_exc()
 
-    error_lines = '#### BUILD-BOT TEST RESULT: ' + 'OK' if tests_passed else 'FAIL' + "\nWARNING: FOUND NOQAS!" \
-        if found_noqas else "" + '\n\n' + error_lines
+    found_noqas = noqas != ''
+
+    error_result = '#### BUILD-BOT TEST RESULT: '
+    error_result += 'OK' if tests_passed else 'FAIL'
+    error_result += '\nWARNING: FOUND NOQAS:\n%s' % noqas if found_noqas else ''
+    error_result += '\n\n' + error_lines if len(error_lines) else ''
 
     os.chdir(cwd)
 
-    return error_lines, tests_passed, found_noqas
+    return error_result, tests_passed, found_noqas
 
 
 def update_tests(merge_request, token):

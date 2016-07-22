@@ -54,7 +54,10 @@ except IOError or ValueError:
 print "Loading current repo ...",
 push_url = getstatusoutput(['git', 'remote', 'show', '-n', 'origin'])[1]
 push_url = filter(lambda x: x.startswith("Push"), map(str.strip, push_url.split("\n")))[0].rsplit(" ", 1)[1]
-origin_repo = push_url.split(":")[1].split("/")[0]
+if push_url.startswith("http"):
+    origin_repo = push_url.split("/")[3]
+else:
+    origin_repo = push_url.split(":")[1].split("/")[0]
 print origin_repo
 
 # Check if current branch is not master or dev or hotfix

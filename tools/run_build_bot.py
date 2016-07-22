@@ -19,6 +19,13 @@ import time
 import errno
 import re
 
+try:
+    import pydevd
+    pydevd.settrace('Complynx-HP.cern.ch', port=6580, stdoutToServer=True, stderrToServer=True)
+except ImportError:
+    pass
+
+
 requests.packages.urllib3.disable_warnings()
 
 project_url = "https://api.github.com/repos/PanDAWMS/pilot-2.0/pulls"

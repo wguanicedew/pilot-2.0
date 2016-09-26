@@ -83,8 +83,7 @@ def create_virtualenv(venv=VENV):
         download("https://bootstrap.pypa.io/get-pip.py", os.path.join(tempdir, "get-pip.py"))
         if HAS_VIRTUALENV:
             print 'Creating venv...'
-            run_command([sys.executable, "-m", 'virtualenv', '-q', '--no-site-packages', '--no-setuptools', '--no-pip',
-                         '--no-wheel', VENV])
+            run_command([sys.executable, "-m", 'virtualenv', '-q', '--no-site-packages', '--no-setuptools', '--no-pip', VENV])
         else:
             download("https://raw.github.com/pypa/virtualenv/master/virtualenv.py",
                      os.path.join(tempdir, "virtualenv.py"))
